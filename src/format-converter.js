@@ -149,15 +149,25 @@ export function removeTrailingThinkingBlocks(content) {
 
 /**
  * Sanitize a thinking block by removing extra fields like cache_control.
- * Only keeps: type, thinking, signature
+ * Only keeps: type, thinking, signature (for thinking) or type, data (for redacted_thinking)
  */
 function sanitizeAnthropicThinkingBlock(block) {
-    if (!block || block.type !== 'thinking') return block;
+    if (!block) return block;
 
-    const sanitized = { type: 'thinking' };
-    if (block.thinking !== undefined) sanitized.thinking = block.thinking;
-    if (block.signature !== undefined) sanitized.signature = block.signature;
-    return sanitized;
+    if (block.type === 'thinking') {
+        const sanitized = { type: 'thinking' };
+        if (block.thinking !== undefined) sanitized.thinking = block.thinking;
+        if (block.signature !== undefined) sanitized.signature = block.signature;
+        return sanitized;
+    }
+
+    if (block.type === 'redacted_thinking') {
+        const sanitized = { type: 'redacted_thinking' };
+        if (block.data !== undefined) sanitized.data = block.data;
+        return sanitized;
+    }
+
+    return block;
 }
 
 /**
@@ -201,7 +211,15 @@ export function restoreThinkingSignatures(content) {
  */
 export function reorderAssistantContent(content) {
     if (!Array.isArray(content)) return content;
-    if (content.length <= 1) return content;
+
+    // Even for single-element arrays, we need to sanitize thinking blocks
+    if (content.length === 1) {
+        const block = content[0];
+        if (block && (block.type === 'thinking' || block.type === 'redacted_thinking')) {
+            return [sanitizeAnthropicThinkingBlock(block)];
+        }
+        return content;
+    }
 
     const thinkingBlocks = [];
     const textBlocks = [];
@@ -211,7 +229,7 @@ export function reorderAssistantContent(content) {
     for (const block of content) {
         if (!block) continue;
 
-        if (block.type === 'thinking') {
+        if (block.type === 'thinking' || block.type === 'redacted_thinking') {
             // Sanitize thinking blocks to remove cache_control and other extra fields
             thinkingBlocks.push(sanitizeAnthropicThinkingBlock(block));
         } else if (block.type === 'tool_use') {
@@ -423,7 +441,8 @@ export function convertAnthropicToGoogle(anthropicRequest) {
     }
 
     // Convert messages to contents, then filter unsigned thinking blocks
-    for (const msg of messages) {
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
         let msgContent = msg.content;
 
         // For assistant messages, process thinking blocks and reorder content

@@ -188,11 +188,6 @@ function buildCloudCodeRequest(anthropicRequest, projectId) {
         requestId: 'agent-' + crypto.randomUUID()
     };
 
-    // Debug: log if tools are present
-    if (googleRequest.tools) {
-        console.log('[CloudCode] Tools in request:', JSON.stringify(googleRequest.tools).substring(0, 500));
-    }
-
     return payload;
 }
 
