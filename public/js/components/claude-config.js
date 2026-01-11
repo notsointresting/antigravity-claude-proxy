@@ -6,6 +6,7 @@ window.Components = window.Components || {};
 
 window.Components.claudeConfig = () => ({
     config: { env: {} },
+    configPath: '', // Dynamic path from backend
     models: [],
     loading: false,
     gemini1mSuffix: false,
@@ -76,7 +77,7 @@ window.Components.claudeConfig = () => ({
      */
     selectModel(field, modelId) {
         if (!this.config.env) this.config.env = {};
-        
+
         let finalModelId = modelId;
         // If 1M mode is enabled and it's a Gemini model, append the suffix
         if (this.gemini1mSuffix && modelId.toLowerCase().includes('gemini')) {
@@ -84,7 +85,7 @@ window.Components.claudeConfig = () => ({
                 finalModelId = finalModelId.trim() + ' [1m]';
             }
         }
-        
+
         this.config.env[field] = finalModelId;
     },
 
@@ -97,6 +98,7 @@ window.Components.claudeConfig = () => ({
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             this.config = data.config || {};
+            this.configPath = data.path || '~/.claude/settings.json'; // Save dynamic path
             if (!this.config.env) this.config.env = {};
 
             // Default MCP CLI to true if not set
@@ -106,10 +108,10 @@ window.Components.claudeConfig = () => ({
 
             // Detect existing [1m] suffix state, default to true
             const hasExistingSuffix = this.detectGemini1mSuffix();
-            const hasGeminiModels = this.geminiModelFields.some(f => 
+            const hasGeminiModels = this.geminiModelFields.some(f =>
                 this.config.env[f]?.toLowerCase().includes('gemini')
             );
-            
+
             // Default to enabled: if no suffix found but Gemini models exist, apply suffix
             if (!hasExistingSuffix && hasGeminiModels) {
                 this.toggleGemini1mSuffix(true);
