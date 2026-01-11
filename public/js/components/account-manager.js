@@ -206,15 +206,15 @@ window.Components.accountManager = () => ({
             // 3. Low Tier (Alive) - fallback
             // 4. Low Tier (Dead)
             
-            if (lower.includes('opus')) return isAlive ? 100 : 60;
-            if (lower.includes('sonnet')) return isAlive ? 90 : 55;
+            if (/\bopus\b/.test(lower)) return isAlive ? 100 : 60;
+            if (/\bsonnet\b/.test(lower)) return isAlive ? 90 : 55;
             // Gemini 3 Pro / Ultra
-            if (lower.includes('gemini-3') && (lower.includes('pro') || lower.includes('ultra'))) return isAlive ? 80 : 50;
-            if (lower.includes('pro')) return isAlive ? 75 : 45; // Other Pro models
+            if (/\bgemini-3\b/.test(lower) && (/\bpro\b/.test(lower) || /\bultra\b/.test(lower))) return isAlive ? 80 : 50;
+            if (/\bpro\b/.test(lower)) return isAlive ? 75 : 45; // Other Pro models
             
             // Mid/Low Tier
-            if (lower.includes('haiku')) return isAlive ? 30 : 15;
-            if (lower.includes('flash')) return isAlive ? 20 : 10;
+            if (/\bhaiku\b/.test(lower)) return isAlive ? 30 : 15;
+            if (/\bflash\b/.test(lower)) return isAlive ? 20 : 10;
             
             return isAlive ? 5 : 0;
         };
