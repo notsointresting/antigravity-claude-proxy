@@ -28,12 +28,23 @@ function getAntigravityDbPath() {
 
 /**
  * Generate platform-specific User-Agent string.
- * @returns {string} User-Agent in format "antigravity/version os/arch"
+ * Returns a generic VS Code User-Agent to mimic legitimate traffic.
+ * @returns {string} User-Agent string
  */
 function getPlatformUserAgent() {
     const os = platform();
-    const architecture = arch();
-    return `antigravity/${ANTIGRAVITY_VERSION} ${os}/${architecture}`;
+    // Default to a recent stable VS Code version
+    const vscodeVer = '1.87.2';
+    const chromeVer = '118.0.5993.159';
+    const electronVer = '27.2.3';
+
+    if (os === 'darwin') {
+        return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
+    } else if (os === 'win32') {
+        return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
+    } else {
+        return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
+    }
 }
 
 // IDE Type enum (numeric values as expected by Cloud Code API)

@@ -1,6 +1,8 @@
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { Readable } from 'stream';
+import { gotScraping } from 'got-scraping';
 import { config } from '../config.js';
 
 /**
@@ -75,26 +77,78 @@ export function isNetworkError(error) {
 /**
  * Throttled fetch that applies a configurable delay before each request
  * Only applies delay when requestThrottlingEnabled is true
+ * Uses got-scraping for browser mimicry (TLS/HTTP2) and supports jitter.
  * @param {string|URL} url - The URL to fetch
  * @param {RequestInit} [options] - Fetch options
  * @returns {Promise<Response>} Fetch response
  */
-export async function throttledFetch(url, options) {
+export async function throttledFetch(url, options = {}) {
     if (config.requestThrottlingEnabled) {
-        const delayMs = config.requestDelayMs || 200;
-        if (delayMs > 0) {
-            await sleep(delayMs);
+        const baseDelay = config.requestDelayMs || 200;
+        if (baseDelay > 0) {
+            // Apply jitter (randomized delay) to mimic human behavior
+            // ±20% variation (e.g., 200ms -> 160ms to 240ms)
+            const jitter = generateJitter(baseDelay * 0.4);
+            const delay = Math.max(0, baseDelay + jitter);
+            await sleep(delay);
         }
     }
-    return fetch(url, options);
+
+    // Normalize headers for got-scraping
+    let headers = options.headers;
+    if (headers && typeof headers.entries === 'function') {
+        headers = Object.fromEntries(headers.entries());
+    }
+
+    // Use got-scraping to mimic a browser (Chrome) which matches the Electron environment of VS Code
+    // This provides the correct TLS fingerprint and HTTP/2 support
+    const stream = gotScraping.stream({
+        url: url.toString(),
+        method: options.method || 'GET',
+        headers: headers,
+        body: options.body,
+        throwHttpErrors: false,
+        http2: true,
+        // Mimic Chrome (common for Electron apps like VS Code)
+        headerGeneratorOptions: {
+            browsers: [{ name: 'chrome', minVersion: 110 }],
+            devices: ['desktop'],
+            locales: ['en-US'],
+            operatingSystems: ['windows', 'macos', 'linux']
+        }
+    });
+
+    return new Promise((resolve, reject) => {
+        stream.on('response', (response) => {
+            // Convert got stream response to standard Fetch API Response
+            // This maintains compatibility with the rest of the application
+            const fetchResponse = new Response(Readable.toWeb(stream), {
+                status: response.statusCode,
+                statusText: response.statusMessage,
+                headers: new Headers(response.headers)
+            });
+            resolve(fetchResponse);
+        });
+
+        stream.on('error', (err) => {
+            reject(err);
+        });
+    });
 }
 
 /**
- * Generate random jitter for backoff timing (Thundering Herd Prevention)
+ * Generate random jitter for backoff timing using Gaussian distribution (Box-Muller transform)
  * Prevents all clients from retrying at the exact same moment after errors.
  * @param {number} maxJitterMs - Maximum jitter range (result will be ±maxJitterMs/2)
  * @returns {number} Random jitter value between -maxJitterMs/2 and +maxJitterMs/2
  */
 export function generateJitter(maxJitterMs) {
-    return Math.random() * maxJitterMs - (maxJitterMs / 2);
+    const u = 1 - Math.random(); // Converting [0,1) to (0,1]
+    const v = Math.random();
+    const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+
+    // Use standard deviation such that ~95% of values fall within the range
+    // stdev = range / 4
+    const stdev = maxJitterMs / 4;
+    return z * stdev;
 }

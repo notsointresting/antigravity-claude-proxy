@@ -18,21 +18,17 @@ const OS_VERSIONS = {
 
 const ARCHITECTURES = ['x64', 'arm64'];
 
-const IDE_TYPES = [
-    'IDE_UNSPECIFIED',
-    'VSCODE',
-    'INTELLIJ',
-    'ANDROID_STUDIO',
-    'CLOUD_SHELL_EDITOR'
-];
+// VS Code versions for User-Agent generation
+const VSCODE_VERSIONS = ['1.85.1', '1.86.0', '1.87.2', '1.88.1', '1.89.0'];
+const ELECTRON_VERSIONS = ['25.9.8', '27.2.3', '28.2.1', '29.3.0'];
+const CHROME_VERSIONS = ['114.0.5735.289', '118.0.5993.159', '120.0.6099.291', '122.0.6261.111'];
 
 const SDK_CLIENTS = [
     'google-cloud-sdk vscode_cloudshelleditor/0.1',
     'google-cloud-sdk vscode/1.86.0',
     'google-cloud-sdk vscode/1.87.0',
     'google-cloud-sdk intellij/2024.1',
-    'google-cloud-sdk android-studio/2024.1',
-    'gcloud-python/1.2.0 grpc-google-iam-v1/0.12.6'
+    'google-cloud-sdk android-studio/2024.1'
 ];
 
 /**
@@ -74,13 +70,27 @@ export function generateFingerprint() {
     else if (platform === 'linux') matchingPlatform = PLATFORM.LINUX;
     else matchingPlatform = PLATFORM.UNSPECIFIED;
 
+    // Generate realistic User-Agent for VS Code
+    const vscodeVersion = randomFrom(VSCODE_VERSIONS);
+    const electronVersion = randomFrom(ELECTRON_VERSIONS);
+    const chromeVersion = randomFrom(CHROME_VERSIONS);
+
+    let userAgent;
+    if (platform === 'darwin') {
+        userAgent = `Mozilla/5.0 (Macintosh; Intel Mac OS X ${osVersion.replace(/\./g, '_')}) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVersion} Chrome/${chromeVersion} Electron/${electronVersion} Safari/537.36`;
+    } else if (platform === 'win32') {
+        userAgent = `Mozilla/5.0 (Windows NT ${osVersion}; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVersion} Chrome/${chromeVersion} Electron/${electronVersion} Safari/537.36`;
+    } else {
+        userAgent = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVersion} Chrome/${chromeVersion} Electron/${electronVersion} Safari/537.36`;
+    }
+
     return {
         deviceId: generateDeviceId(),
         sessionToken: generateSessionToken(),
-        userAgent: `antigravity/${ANTIGRAVITY_VERSION} ${platform}/${arch}`,
+        userAgent: userAgent,
         apiClient: randomFrom(SDK_CLIENTS),
         clientMetadata: {
-            ideType: randomFrom(IDE_TYPES),
+            ideType: IDE_TYPE.ANTIGRAVITY, // Use numeric enum
             platform: matchingPlatform,
             pluginType: PLUGIN_TYPE.GEMINI,
             osVersion: osVersion,
@@ -119,15 +129,16 @@ export function buildFingerprintHeaders(fingerprint) {
  * @returns {Object} Updated fingerprint
  */
 export function updateFingerprintVersion(fingerprint) {
-    if (!fingerprint || !fingerprint.userAgent) return fingerprint;
-
-    const match = fingerprint.userAgent.match(/^antigravity\/\S+ (.+)$/);
-    if (match) {
-        const platformArch = match[1];
-        const expectedUserAgent = `antigravity/${ANTIGRAVITY_VERSION} ${platformArch}`;
-        if (fingerprint.userAgent !== expectedUserAgent) {
-            return { ...fingerprint, userAgent: expectedUserAgent };
-        }
+    // If the fingerprint uses the old antigravity/ format, replace it with a new one
+    if (fingerprint && fingerprint.userAgent && fingerprint.userAgent.startsWith('antigravity/')) {
+        // Generate a new fingerprint to get a modern User-Agent
+        // We keep the deviceId and quotaUser to maintain identity continuity
+        const newFingerprint = generateFingerprint();
+        return {
+            ...fingerprint,
+            userAgent: newFingerprint.userAgent,
+            clientMetadata: newFingerprint.clientMetadata
+        };
     }
     return fingerprint;
 }
