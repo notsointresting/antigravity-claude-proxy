@@ -25,7 +25,8 @@ const tests = [
     { name: 'Streaming Whitespace', file: 'test-streaming-whitespace.cjs' },
     { name: '403 Account Rotation (Unit)', file: 'test-403-account-rotation.cjs' },
     { name: '403 Account Rotation (Integration)', file: 'test-403-integration.cjs' },
-    { name: 'Utility Helpers (isNetworkError)', file: 'test-helpers.cjs' }
+    { name: 'Utility Helpers (isNetworkError)', file: 'test-helpers.cjs' },
+    { name: 'Telemetry Service', file: 'test-telemetry.js' }
 ];
 
 async function runTest(test) {
