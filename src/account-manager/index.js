@@ -50,6 +50,11 @@ export class AccountManager {
     #tokenCache = new Map(); // email -> { token, extractedAt }
     #projectCache = new Map(); // email -> projectId
 
+    // Save coalescing state
+    #isSaving = false;
+    #pendingSavePromise = null;
+    #pendingSaveResolver = null;
+
     constructor(configPath = ACCOUNT_CONFIG_PATH, strategyName = null) {
         this.#configPath = configPath;
         // Strategy name can be set at construction or later via initialize
@@ -419,10 +424,43 @@ export class AccountManager {
 
     /**
      * Save current state to disk (async)
+     * Coalesces multiple concurrent save requests into a single write operation.
      * @returns {Promise<void>}
      */
     async saveToDisk() {
-        await saveAccounts(this.#configPath, this.#accounts, this.#settings, this.#currentIndex);
+        // If a save is already running, queue a new one if not already queued
+        if (this.#isSaving) {
+            if (this.#pendingSavePromise) {
+                return this.#pendingSavePromise;
+            }
+
+            // Create a promise for the pending save
+            this.#pendingSavePromise = new Promise((resolve, reject) => {
+                this.#pendingSaveResolver = { resolve, reject };
+            });
+            return this.#pendingSavePromise;
+        }
+
+        this.#isSaving = true;
+
+        try {
+            await saveAccounts(this.#configPath, this.#accounts, this.#settings, this.#currentIndex);
+        } catch (error) {
+            logger.error('[AccountManager] Failed to save config:', error.message);
+            throw error;
+        } finally {
+            this.#isSaving = false;
+
+            // If there was a pending save requested while we were saving...
+            if (this.#pendingSavePromise) {
+                const { resolve, reject } = this.#pendingSaveResolver;
+                this.#pendingSavePromise = null;
+                this.#pendingSaveResolver = null;
+
+                // Trigger the next save
+                this.saveToDisk().then(resolve).catch(reject);
+            }
+        }
     }
 
     /**
