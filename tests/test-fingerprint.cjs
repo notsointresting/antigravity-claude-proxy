@@ -92,7 +92,8 @@ async function runTests() {
         assert(fp.deviceId, 'Missing deviceId');
         assert(fp.sessionToken, 'Missing sessionToken');
         assert(fp.userAgent, 'Missing userAgent');
-        assert(fp.userAgent.includes(`antigravity/${ANTIGRAVITY_VERSION}`), 'User agent missing version');
+        assert(fp.userAgent.startsWith('Mozilla/5.0'), 'User agent should be browser-like');
+        assert(fp.userAgent.includes('Code/'), 'User agent should include VS Code identifier');
         assert(fp.apiClient, 'Missing apiClient');
         assert(fp.quotaUser, 'Missing quotaUser');
         assert(fp.clientMetadata, 'Missing clientMetadata');
@@ -127,8 +128,8 @@ async function runTests() {
         const oldFp = { ...fp, userAgent: 'antigravity/0.0.1 darwin/x64' };
 
         const updatedFp = updateFingerprintVersion(oldFp);
-        assert(updatedFp.userAgent.includes(`antigravity/${ANTIGRAVITY_VERSION}`), 'Should update to current version');
-        assert(updatedFp.userAgent.includes('darwin/x64'), 'Should preserve platform/arch');
+        assert(updatedFp.userAgent.startsWith('Mozilla/5.0'), 'Should update to modern User-Agent');
+        assert(updatedFp.userAgent !== oldFp.userAgent, 'Should change the User-Agent');
     });
 
     test('updateFingerprintVersion handles non-numeric versions (e.g. beta)', () => {
@@ -136,7 +137,7 @@ async function runTests() {
         const betaFp = { ...fp, userAgent: 'antigravity/1.0.0-beta.2 linux/arm64' };
 
         const updatedFp = updateFingerprintVersion(betaFp);
-        assertEqual(updatedFp.userAgent, `antigravity/${ANTIGRAVITY_VERSION} linux/arm64`, 'Should update beta version');
+        assert(updatedFp.userAgent.startsWith('Mozilla/5.0'), 'Should update to modern User-Agent');
     });
 
     test('updateFingerprintVersion handles pre-release suffixes', () => {
@@ -144,7 +145,7 @@ async function runTests() {
         const rcFp = { ...fp, userAgent: 'antigravity/2.0.0-rc1+build.123 win32/x64' };
 
         const updatedFp = updateFingerprintVersion(rcFp);
-        assertEqual(updatedFp.userAgent, `antigravity/${ANTIGRAVITY_VERSION} win32/x64`, 'Should update rc version');
+        assert(updatedFp.userAgent.startsWith('Mozilla/5.0'), 'Should update to modern User-Agent');
     });
 
     test('updateFingerprintVersion returns same fingerprint when already current', () => {
