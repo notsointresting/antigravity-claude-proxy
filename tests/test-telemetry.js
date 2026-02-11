@@ -70,9 +70,19 @@ async function runTest() {
     // Check request structure
     const req = activeProjectRequests[0];
     assert.strictEqual(req.method, 'POST');
-    assert(req.headers['User-Agent'].includes('antigravity'), 'User-Agent should be spoofed');
+    // User-Agent should be a browser UA now (Mozilla/...) not "antigravity"
+    assert(req.headers['User-Agent'].includes('Mozilla'), 'User-Agent should be a browser-like string');
     assert(req.headers['Authorization'] === 'Bearer mock-token', 'Auth header should be correct');
     assert(req.headerGeneratorOptions.browsers[0].name === 'chrome', 'Should mimic Chrome');
+
+    // Check interaction events for active account (should have TYPING)
+    const trajectoryReq = activeProjectRequests.find(r => r.url.includes('recordTrajectoryAnalytics'));
+    if (trajectoryReq) {
+        const events = trajectoryReq.json.trajectory_metrics.interaction_events;
+        const hasTyping = events.some(e => e.interaction_type === 'TYPING');
+        assert(hasTyping, 'Active account should produce TYPING events');
+        console.log(`Verified ${events.length} interaction events (Active: TYPING found)`);
+    }
 
     console.log('Telemetry Test PASSED');
     process.exit(0);

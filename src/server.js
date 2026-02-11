@@ -22,6 +22,7 @@ import { clearThinkingSignatureCache } from './format/signature-cache.js';
 import { formatDuration } from './utils/helpers.js';
 import { logger } from './utils/logger.js';
 import usageStats from './modules/usage-stats.js';
+import { trafficShaper } from './modules/traffic-shaper.js';
 
 // Cache TTLs for informational endpoints
 const SUBSCRIPTION_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
@@ -238,6 +239,17 @@ app.post('/test/clear-signature-cache', (req, res) => {
     clearThinkingSignatureCache();
     logger.debug('[Test] Cleared thinking signature cache');
     res.json({ success: true, message: 'Thinking signature cache cleared' });
+});
+
+/**
+ * Monitor endpoint - Liveness status for UI
+ * Returns status of telemetry loop and traffic shaper
+ */
+app.get('/api/liveness', (req, res) => {
+    res.json({
+        telemetry: telemetry.getStatus(),
+        traffic: trafficShaper.getStatus()
+    });
 });
 
 /**
@@ -840,8 +852,9 @@ app.post('/v1/messages', async (req, res) => {
             // to ensure we don't send a 200 OK if the upstream fails immediately (e.g. 429/503).
 
             try {
-                // Initialize the generator
-                const generator = sendMessageStream(request, accountManager, FALLBACK_ENABLED);
+                // Initialize the generator (wrapped in traffic shaper)
+                // Note: We only queue the START of the stream. Once started, chunks flow freely.
+                const generator = await trafficShaper.enqueue(() => Promise.resolve(sendMessageStream(request, accountManager, FALLBACK_ENABLED)));
                 
                 // BUFFERING STRATEGY:
                 // Pull the first event *before* sending headers. 
@@ -899,7 +912,7 @@ app.post('/v1/messages', async (req, res) => {
 
         } else {
             // Handle non-streaming response
-            const response = await sendMessage(request, accountManager, FALLBACK_ENABLED);
+            const response = await trafficShaper.enqueue(() => sendMessage(request, accountManager, FALLBACK_ENABLED));
             res.json(response);
         }
 
