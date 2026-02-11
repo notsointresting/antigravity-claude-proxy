@@ -70,7 +70,8 @@ async function runTest() {
     // Check request structure
     const req = activeProjectRequests[0];
     assert.strictEqual(req.method, 'POST');
-    assert(req.headers['User-Agent'].includes('antigravity'), 'User-Agent should be spoofed');
+    // User-Agent should be a browser UA now (Mozilla/...) not "antigravity"
+    assert(req.headers['User-Agent'].includes('Mozilla'), 'User-Agent should be a browser-like string');
     assert(req.headers['Authorization'] === 'Bearer mock-token', 'Auth header should be correct');
     assert(req.headerGeneratorOptions.browsers[0].name === 'chrome', 'Should mimic Chrome');
 

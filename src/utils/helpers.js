@@ -110,12 +110,7 @@ export async function throttledFetch(url, options = {}) {
         throwHttpErrors: false,
         http2: true,
         // Mimic Chrome (common for Electron apps like VS Code)
-        headerGeneratorOptions: {
-            browsers: [{ name: 'chrome', minVersion: 110 }],
-            devices: ['desktop'],
-            locales: ['en-US'],
-            operatingSystems: ['windows', 'macos', 'linux']
-        }
+        headerGeneratorOptions: getGotScrapingOptions()
     });
 
     return new Promise((resolve, reject) => {
@@ -151,4 +146,25 @@ export function generateJitter(maxJitterMs) {
     // stdev = range / 4
     const stdev = maxJitterMs / 4;
     return z * stdev;
+}
+
+/**
+ * Get got-scraping options for current platform
+ * Ensures TLS fingerprint matches the OS
+ * @returns {Object} Header generator options
+ */
+export function getGotScrapingOptions() {
+    let os = 'windows'; // Default
+    switch (process.platform) {
+        case 'darwin': os = 'macos'; break;
+        case 'linux': os = 'linux'; break;
+        case 'win32': os = 'windows'; break;
+    }
+
+    return {
+        browsers: [{ name: 'chrome', minVersion: 110 }],
+        devices: ['desktop'],
+        locales: ['en-US'],
+        operatingSystems: [os]
+    };
 }

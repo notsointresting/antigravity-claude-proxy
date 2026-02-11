@@ -8,7 +8,8 @@
 import { gotScraping } from 'got-scraping';
 import crypto from 'crypto';
 import { logger } from '../utils/logger.js';
-import { sleep } from '../utils/helpers.js';
+import { sleep, getGotScrapingOptions } from '../utils/helpers.js';
+import { ANTIGRAVITY_HEADERS, CLIENT_METADATA } from '../constants.js';
 
 // Configuration
 const TELEMETRY_INTERVAL_MS = 45000; // 45 seconds average
@@ -33,14 +34,10 @@ let _accountManager = null;
 let _fetcher = gotScraping;
 const sessionIds = new Map(); // email -> sessionId
 
-// Headers template
+// Headers template (dynamic based on constants)
 const HEADERS_TEMPLATE = {
-    'User-Agent': 'antigravity/1.16.5 darwin/arm64',
-    'Client-Metadata': JSON.stringify({
-        ideType: 6,        // ANTIGRAVITY
-        platform: 3,       // MACOS
-        pluginType: 2      // GEMINI
-    })
+    'User-Agent': ANTIGRAVITY_HEADERS['User-Agent'],
+    'Client-Metadata': JSON.stringify(CLIENT_METADATA)
 };
 
 /**
@@ -171,25 +168,42 @@ async function sendTelemetry(account) {
         // 1. Fetch User Info (High probability - heartbeat)
         if (Math.random() > 0.1) {
             await callEndpoint(ENDPOINTS.FETCH_USER_INFO, { project: projectId }, headers);
+            await sleep(500 + Math.random() * 1500); // 0.5s - 2s delay
         }
 
         // 2. List Experiments (Medium probability)
         if (Math.random() > 0.5) {
              await callEndpoint(ENDPOINTS.LIST_EXPERIMENTS, { project: projectId, parent: `projects/${projectId}` }, headers);
+             await sleep(500 + Math.random() * 1500);
         }
 
         // 3. Record Metrics (Low probability, simulates action)
         if (Math.random() > 0.7) {
+            // Generate fake interaction events
+            const interactionEvents = [];
+            const numEvents = Math.floor(Math.random() * 3) + 1; // 1 to 3 events
+            for (let i = 0; i < numEvents; i++) {
+                // Simulate simple mouse moves or scrolls
+                // Using generic structure as exact Protobuf fields are opaque
+                // This payload structure is "best effort" based on known fields
+                interactionEvents.push({
+                    event_time: new Date().toISOString(),
+                    interaction_type: Math.random() > 0.5 ? 'MOUSE_OVER' : 'SCROLL',
+                    ui_element: 'EDITOR_PANE'
+                });
+            }
+
             // Trajectory Analytics
             await callEndpoint(ENDPOINTS.RECORD_TRAJECTORY, {
                 project: projectId,
                 session_id: sessionId,
                 trajectory_metrics: {
-                    interaction_events: [],
+                    interaction_events: interactionEvents,
                     latency_ms: Math.floor(50 + Math.random() * 150),
                     model_id: 'gemini-1.5-pro-002'
                 }
             }, headers);
+            await sleep(500 + Math.random() * 1500);
         }
 
         if (Math.random() > 0.8) {
@@ -231,12 +245,7 @@ async function callEndpoint(path, body, headers) {
         responseType: 'json',
         throwHttpErrors: false,
         http2: true,
-        headerGeneratorOptions: {
-            browsers: [{ name: 'chrome', minVersion: 110 }],
-            devices: ['desktop'],
-            locales: ['en-US'],
-            operatingSystems: ['macos']
-        }
+        headerGeneratorOptions: getGotScrapingOptions() // Use dynamic OS detection
     });
 
     if (response.statusCode >= 400) {
