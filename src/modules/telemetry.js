@@ -1,0 +1,247 @@
+/**
+ * Telemetry Module
+ *
+ * Implements periodic telemetry calls to match Antigravity's behavioral fingerprint.
+ * Runs in the background and sends heartbeat/analytics data for active accounts.
+ */
+
+import { gotScraping } from 'got-scraping';
+import crypto from 'crypto';
+import { logger } from '../utils/logger.js';
+import { sleep } from '../utils/helpers.js';
+
+// Configuration
+const TELEMETRY_INTERVAL_MS = 45000; // 45 seconds average
+const TELEMETRY_JITTER_MS = 15000; // +/- 15 seconds -> 30-60s range
+const ACTIVE_SESSION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+// Endpoints
+const BASE_URL = 'https://daily-cloudcode-pa.googleapis.com';
+const FALLBACK_URL = 'https://cloudcode-pa.googleapis.com';
+
+const ENDPOINTS = {
+    FETCH_USER_INFO: '/v1internal:fetchUserInfo',
+    RECORD_TRAJECTORY: '/v1internal:recordTrajectoryAnalytics',
+    RECORD_CODE_ASSIST: '/v1internal:recordCodeAssistMetrics',
+    LIST_EXPERIMENTS: '/v1internal:listExperiments'
+};
+
+// State
+let lastActivityTime = 0;
+let telemetryLoopRunning = false;
+let _accountManager = null;
+let _fetcher = gotScraping;
+const sessionIds = new Map(); // email -> sessionId
+
+// Headers template
+const HEADERS_TEMPLATE = {
+    'User-Agent': 'antigravity/1.16.5 darwin/arm64',
+    'Client-Metadata': JSON.stringify({
+        ideType: 6,        // ANTIGRAVITY
+        platform: 3,       // MACOS
+        pluginType: 2      // GEMINI
+    })
+};
+
+/**
+ * Initialize the telemetry service
+ * @param {Object} accountManager - The account manager instance
+ * @param {Function} [fetcher] - Optional fetcher function for testing
+ */
+export function initialize(accountManager, fetcher = null) {
+    _accountManager = accountManager;
+    if (fetcher) {
+        _fetcher = fetcher;
+    }
+    startTelemetryLoop();
+}
+
+/**
+ * Notify the service of user activity
+ */
+export function notifyActivity() {
+    lastActivityTime = Date.now();
+    if (!telemetryLoopRunning && _accountManager) {
+        startTelemetryLoop();
+    }
+}
+
+/**
+ * Start the background telemetry loop
+ */
+async function startTelemetryLoop() {
+    if (telemetryLoopRunning) return;
+    telemetryLoopRunning = true;
+
+    // Initial delay to let server start up
+    await sleep(5000);
+
+    logger.info('[Telemetry] Background service started');
+
+    while (true) {
+        try {
+            const now = Date.now();
+
+            // Check if session is active
+            if (now - lastActivityTime < ACTIVE_SESSION_TIMEOUT_MS) {
+                await sendTelemetryForActiveAccounts();
+            } else {
+                // If inactive, we just wait. The loop continues to check periodically.
+                // We could stop the loop, but it's simpler to keep it running with low overhead.
+            }
+
+            // Calculate next run time
+            // 30-60s: base 45s +/- 15s
+            const jitter = (Math.random() * 2 - 1) * TELEMETRY_JITTER_MS;
+            const delay = Math.max(5000, TELEMETRY_INTERVAL_MS + jitter);
+            await sleep(delay);
+
+        } catch (error) {
+            logger.error('[Telemetry] Loop error:', error);
+            await sleep(60000); // Wait 1 min on error
+        }
+    }
+}
+
+/**
+ * Send telemetry for all active accounts
+ */
+async function sendTelemetryForActiveAccounts() {
+    if (!_accountManager) return;
+
+    try {
+        const accounts = _accountManager.getAllAccounts();
+
+        // Filter active accounts
+        const activeAccounts = accounts.filter(acc => {
+             // Skip invalid/disabled
+             if (acc.isInvalid || acc.enabled === false) return false;
+
+             if (!acc.lastUsed) return false;
+             const lastUsedTime = new Date(acc.lastUsed).getTime();
+             return (Date.now() - lastUsedTime) < ACTIVE_SESSION_TIMEOUT_MS;
+        });
+
+        if (activeAccounts.length === 0) {
+            return;
+        }
+
+        logger.debug(`[Telemetry] Processing ${activeAccounts.length} active accounts`);
+
+        for (const account of activeAccounts) {
+            await sendTelemetry(account);
+            // Add small delay between accounts to avoid burst
+            await sleep(2000 + Math.random() * 3000);
+        }
+    } catch (error) {
+        logger.error('[Telemetry] Error processing active accounts:', error);
+    }
+}
+
+/**
+ * Send telemetry for a specific account
+ * @param {Object} account
+ */
+async function sendTelemetry(account) {
+    try {
+        // Get token
+        const token = await _accountManager.getTokenForAccount(account);
+        const projectId = account.subscription?.projectId || account.projectId;
+
+        if (!projectId) {
+            // Can't send telemetry without project ID
+            return;
+        }
+
+        // Manage session ID
+        let sessionId = sessionIds.get(account.email);
+        if (!sessionId) {
+            sessionId = crypto.randomUUID();
+            sessionIds.set(account.email, sessionId);
+        }
+
+        // Construct common headers
+        const headers = {
+            ...HEADERS_TEMPLATE,
+            'Authorization': `Bearer ${token}`
+        };
+
+        // Randomly select endpoints to call to mimic human behavior
+
+        // 1. Fetch User Info (High probability - heartbeat)
+        if (Math.random() > 0.1) {
+            await callEndpoint(ENDPOINTS.FETCH_USER_INFO, { project: projectId }, headers);
+        }
+
+        // 2. List Experiments (Medium probability)
+        if (Math.random() > 0.5) {
+             await callEndpoint(ENDPOINTS.LIST_EXPERIMENTS, { project: projectId, parent: `projects/${projectId}` }, headers);
+        }
+
+        // 3. Record Metrics (Low probability, simulates action)
+        if (Math.random() > 0.7) {
+            // Trajectory Analytics
+            await callEndpoint(ENDPOINTS.RECORD_TRAJECTORY, {
+                project: projectId,
+                session_id: sessionId,
+                trajectory_metrics: {
+                    interaction_events: [],
+                    latency_ms: Math.floor(50 + Math.random() * 150),
+                    model_id: 'gemini-1.5-pro-002'
+                }
+            }, headers);
+        }
+
+        if (Math.random() > 0.8) {
+             // Code Assist Metrics
+             await callEndpoint(ENDPOINTS.RECORD_CODE_ASSIST, {
+                project: projectId,
+                session_id: sessionId,
+                code_assist_metrics: {
+                    completions_shown: 1,
+                    completions_accepted: 1,
+                    accept_rate: 1.0,
+                    latency_ms: Math.floor(100 + Math.random() * 400),
+                    interaction_type: 'ACCEPT'
+                }
+             }, headers);
+        }
+
+    } catch (error) {
+        // Log debug, don't spam error log for background telemetry failures
+        logger.debug(`[Telemetry] Failed for ${account.email}: ${error.message}`);
+    }
+}
+
+/**
+ * Make a request to a telemetry endpoint
+ * @param {string} path
+ * @param {Object} body
+ * @param {Object} headers
+ */
+async function callEndpoint(path, body, headers) {
+    const url = `${BASE_URL}${path}`;
+
+    // Use got-scraping to mimic Chrome
+    const response = await _fetcher({
+        url,
+        method: 'POST',
+        headers,
+        json: body,
+        responseType: 'json',
+        throwHttpErrors: false,
+        http2: true,
+        headerGeneratorOptions: {
+            browsers: [{ name: 'chrome', minVersion: 110 }],
+            devices: ['desktop'],
+            locales: ['en-US'],
+            operatingSystems: ['macos']
+        }
+    });
+
+    if (response.statusCode >= 400) {
+        throw new Error(`Status ${response.statusCode}`);
+    }
+
+    return response.body;
+}
