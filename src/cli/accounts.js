@@ -183,6 +183,35 @@ function displayAccounts(accounts) {
 }
 
 /**
+ * Process authentication result: update existing account or create new one
+ * @param {Array} existingAccounts - Current account list
+ * @param {Object} authResult - Result from completeOAuthFlow
+ * @returns {Object|null} New account object to add, or null if existing was updated
+ */
+function processAccountAuth(existingAccounts, authResult) {
+    // Check if account already exists
+    const existing = existingAccounts.find(a => a.email === authResult.email);
+    if (existing) {
+        console.log(`\n⚠ Account ${authResult.email} already exists. Updating tokens.`);
+        existing.refreshToken = authResult.refreshToken;
+        // Note: projectId will be discovered and stored in refresh token on first use
+        existing.addedAt = new Date().toISOString();
+        return null; // Don't add duplicate
+    }
+
+    console.log(`\n✓ Successfully authenticated: ${authResult.email}`);
+    console.log('  Project will be discovered on first API request.');
+
+    return {
+        email: authResult.email,
+        refreshToken: authResult.refreshToken,
+        // Note: projectId stored in refresh token, not as separate field
+        addedAt: new Date().toISOString(),
+        modelRateLimits: {}
+    };
+}
+
+/**
  * Add a new account via OAuth with automatic callback
  */
 async function addAccount(existingAccounts) {
@@ -209,26 +238,7 @@ async function addAccount(existingAccounts) {
         console.log('Received authorization code. Exchanging for tokens...');
         const result = await completeOAuthFlow(code, verifier);
 
-        // Check if account already exists
-        const existing = existingAccounts.find(a => a.email === result.email);
-        if (existing) {
-            console.log(`\n⚠ Account ${result.email} already exists. Updating tokens.`);
-            existing.refreshToken = result.refreshToken;
-            // Note: projectId will be discovered and stored in refresh token on first use
-            existing.addedAt = new Date().toISOString();
-            return null; // Don't add duplicate
-        }
-
-        console.log(`\n✓ Successfully authenticated: ${result.email}`);
-        console.log('  Project will be discovered on first API request.');
-
-        return {
-            email: result.email,
-            refreshToken: result.refreshToken,
-            // Note: projectId stored in refresh token, not as separate field
-            addedAt: new Date().toISOString(),
-            modelRateLimits: {}
-        };
+        return processAccountAuth(existingAccounts, result);
     } catch (error) {
         console.error(`\n✗ Authentication failed: ${error.message}`);
         return null;
@@ -264,26 +274,7 @@ async function addAccountNoBrowser(existingAccounts, rl) {
         console.log('\nExchanging authorization code for tokens...');
         const result = await completeOAuthFlow(code, verifier);
 
-        // Check if account already exists
-        const existing = existingAccounts.find(a => a.email === result.email);
-        if (existing) {
-            console.log(`\n⚠ Account ${result.email} already exists. Updating tokens.`);
-            existing.refreshToken = result.refreshToken;
-            // Note: projectId will be discovered and stored in refresh token on first use
-            existing.addedAt = new Date().toISOString();
-            return null; // Don't add duplicate
-        }
-
-        console.log(`\n✓ Successfully authenticated: ${result.email}`);
-        console.log('  Project will be discovered on first API request.');
-
-        return {
-            email: result.email,
-            refreshToken: result.refreshToken,
-            // Note: projectId stored in refresh token, not as separate field
-            addedAt: new Date().toISOString(),
-            modelRateLimits: {}
-        };
+        return processAccountAuth(existingAccounts, result);
     } catch (error) {
         console.error(`\n✗ Authentication failed: ${error.message}`);
         return null;
