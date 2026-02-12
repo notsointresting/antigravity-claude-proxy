@@ -12,8 +12,23 @@
 
 import { GEMINI_SIGNATURE_CACHE_TTL_MS, MIN_SIGNATURE_LENGTH } from '../constants.js';
 
+// Limit cache size to prevent memory leaks in long-running processes
+export const MAX_CACHE_SIZE = 10000;
+
 const signatureCache = new Map();
 const thinkingSignatureCache = new Map();
+
+/**
+ * Enforce cache size limit by removing oldest entries (FIFO)
+ * @param {Map} cache - The cache to limit
+ */
+function enforceCacheLimit(cache) {
+    if (cache.size >= MAX_CACHE_SIZE) {
+        // Remove oldest entry (Map iterates in insertion order)
+        const oldestKey = cache.keys().next().value;
+        cache.delete(oldestKey);
+    }
+}
 
 /**
  * Store a signature for a tool_use_id
@@ -22,6 +37,10 @@ const thinkingSignatureCache = new Map();
  */
 export function cacheSignature(toolUseId, signature) {
     if (!toolUseId || !signature) return;
+
+    // Prevent unbounded growth
+    enforceCacheLimit(signatureCache);
+
     signatureCache.set(toolUseId, {
         signature,
         timestamp: Date.now()
@@ -54,6 +73,10 @@ export function getCachedSignature(toolUseId) {
  */
 export function cacheThinkingSignature(signature, modelFamily) {
     if (!signature || signature.length < MIN_SIGNATURE_LENGTH) return;
+
+    // Prevent unbounded growth
+    enforceCacheLimit(thinkingSignatureCache);
+
     thinkingSignatureCache.set(signature, {
         modelFamily,
         timestamp: Date.now()
