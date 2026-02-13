@@ -266,6 +266,7 @@ app.get('/health', async (req, res) => {
         const allAccounts = accountManager.getAllAccounts();
 
         // Fetch quotas for each account in parallel to get detailed model info
+        let anyChanges = false;
         const accountDetails = await Promise.allSettled(
             allAccounts.map(async (account) => {
                 // Check model-specific rate limits
@@ -310,10 +311,7 @@ app.get('/health', async (req, res) => {
                             models: quotas,
                             lastChecked: now
                         };
-                        // Save to disk (async)
-                        accountManager.saveToDisk().catch(err => {
-                            logger.error('[Server] Failed to save account data:', err);
-                        });
+                        anyChanges = true;
                     }
 
                     // Format quotas for readability
@@ -341,6 +339,13 @@ app.get('/health', async (req, res) => {
                 }
             })
         );
+
+        // Save updated account data to disk if anything changed
+        if (anyChanges) {
+            accountManager.saveToDisk().catch(err => {
+                logger.error('[Server] Failed to save account data:', err);
+            });
+        }
 
         // Process results
         const detailedAccounts = accountDetails.map((result, index) => {
@@ -395,6 +400,7 @@ app.get('/account-limits', async (req, res) => {
         const forceRefreshFlag = req.query.forceRefresh === 'true';
 
         // Fetch quotas for each account in parallel
+        let anyChanges = false;
         const results = await Promise.allSettled(
             allAccounts.map(async (account) => {
                 // Skip invalid accounts
@@ -425,6 +431,7 @@ app.get('/account-limits', async (req, res) => {
                             projectId: subscription.projectId,
                             detectedAt: now
                         };
+                        anyChanges = true;
                     }
 
                     // Determine if we need to refresh quota data
@@ -439,13 +446,7 @@ app.get('/account-limits', async (req, res) => {
                             models: quotas,
                             lastChecked: now
                         };
-                    }
-
-                    // Save updated account data to disk if anything changed
-                    if (isSubscriptionStale || isQuotaStale || forceRefreshFlag) {
-                        accountManager.saveToDisk().catch(err => {
-                            logger.error('[Server] Failed to save account data:', err);
-                        });
+                        anyChanges = true;
                     }
 
                     return {
@@ -465,6 +466,13 @@ app.get('/account-limits', async (req, res) => {
                 }
             })
         );
+
+        // Save updated account data to disk if anything changed
+        if (anyChanges) {
+            accountManager.saveToDisk().catch(err => {
+                logger.error('[Server] Failed to save account data:', err);
+            });
+        }
 
         // Process results
         const accountLimits = results.map((result, index) => {
