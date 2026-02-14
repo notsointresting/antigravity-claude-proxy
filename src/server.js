@@ -268,7 +268,6 @@ app.get('/health', async (req, res) => {
         let anyChanges = false;
 
         // Fetch quotas for each account in parallel to get detailed model info
-        let anyChanges = false;
         const accountDetails = await Promise.allSettled(
             allAccounts.map(async (account) => {
                 // Check model-specific rate limits
@@ -403,7 +402,6 @@ app.get('/account-limits', async (req, res) => {
         let anyChanges = false;
 
         // Fetch quotas for each account in parallel
-        let anyChanges = false;
         const results = await Promise.allSettled(
             allAccounts.map(async (account) => {
                 // Skip invalid accounts
