@@ -33,10 +33,10 @@ function getAntigravityDbPath() {
  */
 function getPlatformUserAgent() {
     const os = platform();
-    // Default to a recent stable VS Code version
-    const vscodeVer = '1.87.2';
-    const chromeVer = '118.0.5993.159';
-    const electronVer = '27.2.3';
+    // Default to a recent stable VS Code version (May 2024)
+    const vscodeVer = '1.89.1';
+    const chromeVer = '122.0.6261.156';
+    const electronVer = '29.3.1';
 
     if (os === 'darwin') {
         return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;

@@ -4,6 +4,7 @@ import path from 'path';
 import { Readable } from 'stream';
 import { gotScraping } from 'got-scraping';
 import { config } from '../config.js';
+import { logger } from './logger.js';
 
 /**
  * Shared Utility Functions
@@ -100,35 +101,72 @@ export async function throttledFetch(url, options = {}) {
         headers = Object.fromEntries(headers.entries());
     }
 
-    // Use got-scraping to mimic a browser (Chrome) which matches the Electron environment of VS Code
-    // This provides the correct TLS fingerprint and HTTP/2 support
-    const stream = gotScraping.stream({
-        url: url.toString(),
-        method: options.method || 'GET',
-        headers: headers,
-        body: options.body,
-        throwHttpErrors: false,
-        http2: true,
-        // Mimic Chrome (common for Electron apps like VS Code)
-        headerGeneratorOptions: getGotScrapingOptions()
-    });
+    // Retry configuration
+    // We handle 5xx errors and network errors here to improve robustness for OAuth/Telemetry
+    // Note: 429 is deliberately excluded to let upstream logic handle account switching
+    const MAX_RETRIES = 2;
+    const RETRY_DELAY_BASE = 1000;
+    let lastError = null;
 
-    return new Promise((resolve, reject) => {
-        stream.on('response', (response) => {
-            // Convert got stream response to standard Fetch API Response
-            // This maintains compatibility with the rest of the application
-            const fetchResponse = new Response(Readable.toWeb(stream), {
-                status: response.statusCode,
-                statusText: response.statusMessage,
-                headers: new Headers(response.headers)
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            // Use got-scraping to mimic a browser (Chrome) which matches the Electron environment of VS Code
+            // This provides the correct TLS fingerprint and HTTP/2 support
+            const stream = gotScraping.stream({
+                url: url.toString(),
+                method: options.method || 'GET',
+                headers: headers,
+                body: options.body,
+                throwHttpErrors: false,
+                http2: true,
+                // Mimic Chrome (common for Electron apps like VS Code)
+                headerGeneratorOptions: getGotScrapingOptions()
             });
-            resolve(fetchResponse);
-        });
 
-        stream.on('error', (err) => {
-            reject(err);
-        });
-    });
+            const response = await new Promise((resolve, reject) => {
+                stream.on('response', (res) => {
+                    // Convert got stream response to standard Fetch API Response
+                    // This maintains compatibility with the rest of the application
+                    const fetchResponse = new Response(Readable.toWeb(stream), {
+                        status: res.statusCode,
+                        statusText: res.statusMessage,
+                        headers: new Headers(res.headers)
+                    });
+                    resolve(fetchResponse);
+                });
+
+                stream.on('error', (err) => {
+                    reject(err);
+                });
+            });
+
+            // Check if we should retry based on status (500, 502, 503, 504)
+            // If it's the last attempt, just return the response (let caller handle 5xx)
+            if (attempt < MAX_RETRIES && [500, 502, 503, 504].includes(response.status)) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            return response;
+
+        } catch (error) {
+            lastError = error;
+            const isRetryableStatus = error.message.startsWith('HTTP 5');
+            const isNetwork = isNetworkError(error);
+
+            if (attempt < MAX_RETRIES && (isRetryableStatus || isNetwork)) {
+                // Exponential backoff with jitter
+                const backoff = RETRY_DELAY_BASE * Math.pow(2, attempt);
+                const jitter = generateJitter(backoff * 0.5);
+                const delay = Math.max(500, backoff + jitter);
+
+                logger.warn(`[throttledFetch] Retry ${attempt + 1}/${MAX_RETRIES} after ${Math.round(delay)}ms: ${error.message}`);
+                await sleep(delay);
+                continue;
+            }
+
+            throw lastError;
+        }
+    }
 }
 
 /**

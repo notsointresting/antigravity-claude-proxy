@@ -5,10 +5,9 @@
  * Runs in the background and sends heartbeat/analytics data for active accounts.
  */
 
-import { gotScraping } from 'got-scraping';
 import crypto from 'crypto';
 import { logger } from '../utils/logger.js';
-import { sleep, getGotScrapingOptions } from '../utils/helpers.js';
+import { sleep, getGotScrapingOptions, throttledFetch } from '../utils/helpers.js';
 import { ANTIGRAVITY_HEADERS, CLIENT_METADATA } from '../constants.js';
 
 // Configuration
@@ -31,7 +30,7 @@ const ENDPOINTS = {
 let lastActivityTime = 0;
 let telemetryLoopRunning = false;
 let _accountManager = null;
-let _fetcher = gotScraping;
+let _fetcher = throttledFetch;
 const sessionIds = new Map(); // email -> sessionId
 
 // Headers template (dynamic based on constants)
@@ -164,17 +163,26 @@ async function sendTelemetry(account) {
             return;
         }
 
-        // Manage session ID
-        let sessionId = sessionIds.get(account.email);
+        // Manage session ID (persist to account for continuity across restarts)
+        let sessionId = account.telemetrySessionId;
         if (!sessionId) {
             sessionId = crypto.randomUUID();
-            sessionIds.set(account.email, sessionId);
+            account.telemetrySessionId = sessionId;
+            // Persist the new session ID to disk
+            if (_accountManager) {
+                _accountManager.saveToDisk().catch(err => {
+                    logger.warn(`[Telemetry] Failed to save session ID for ${account.email}: ${err.message}`);
+                });
+            }
         }
+        // Keep in memory map for consistency, though primarily relying on account object now
+        sessionIds.set(account.email, sessionId);
 
         // Construct common headers
         const headers = {
             ...HEADERS_TEMPLATE,
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
         };
 
         // Randomly select endpoints to call to mimic human behavior
@@ -279,21 +287,16 @@ async function sendTelemetry(account) {
 async function callEndpoint(path, body, headers) {
     const url = `${BASE_URL}${path}`;
 
-    // Use got-scraping to mimic Chrome
-    const response = await _fetcher({
-        url,
+    // Use throttledFetch to mimic Chrome with retry support
+    const response = await _fetcher(url, {
         method: 'POST',
         headers,
-        json: body,
-        responseType: 'json',
-        throwHttpErrors: false,
-        http2: true,
-        headerGeneratorOptions: getGotScrapingOptions() // Use dynamic OS detection
+        body: JSON.stringify(body)
     });
 
-    if (response.statusCode >= 400) {
-        throw new Error(`Status ${response.statusCode}`);
+    if (!response.ok) {
+        throw new Error(`Status ${response.status}`);
     }
 
-    return response.body;
+    return await response.json();
 }
