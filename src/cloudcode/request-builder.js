@@ -7,10 +7,9 @@
 import crypto from 'crypto';
 import {
     ANTIGRAVITY_HEADERS,
-    ANTIGRAVITY_SYSTEM_INSTRUCTION,
-    getModelFamily,
-    isThinkingModel
+    ANTIGRAVITY_SYSTEM_INSTRUCTION
 } from '../constants.js';
+import { getModelFamily, isThinkingModel } from '../utils/helpers.js';
 import { convertAnthropicToGoogle } from '../format/index.js';
 import { deriveSessionId } from './session-manager.js';
 import { buildFingerprintHeaders } from '../utils/fingerprint.js';

@@ -10,9 +10,9 @@ import {
     LOAD_CODE_ASSIST_ENDPOINTS,
     LOAD_CODE_ASSIST_HEADERS,
     CLIENT_METADATA,
-    getModelFamily,
     MODEL_VALIDATION_CACHE_TTL_MS
 } from '../constants.js';
+import { getModelFamily } from '../utils/helpers.js';
 import { logger } from '../utils/logger.js';
 import { throttledFetch } from '../utils/helpers.js';
 

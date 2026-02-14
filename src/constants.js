@@ -3,49 +3,20 @@
  * Based on: https://github.com/NoeFabris/opencode-antigravity-auth
  */
 
-import { homedir, platform, arch } from 'os';
-import { join } from 'path';
 import { config } from './config.js';
+import {
+    getAntigravityDbPath,
+    getPlatformUserAgent,
+    getPlatformEnum,
+    getModelFamily as _getModelFamily,
+    isThinkingModel as _isThinkingModel,
+    getDefaultAccountConfigPath,
+    getDefaultUsageHistoryPath
+} from './utils/helpers.js';
 
-/**
- * Get the Antigravity database path based on the current platform.
- * - macOS: ~/Library/Application Support/Antigravity/...
- * - Windows: ~/AppData/Roaming/Antigravity/...
- * - Linux/other: ~/.config/Antigravity/...
- * @returns {string} Full path to the Antigravity state database
- */
-function getAntigravityDbPath() {
-    const home = homedir();
-    switch (platform()) {
-        case 'darwin':
-            return join(home, 'Library/Application Support/Antigravity/User/globalStorage/state.vscdb');
-        case 'win32':
-            return join(home, 'AppData/Roaming/Antigravity/User/globalStorage/state.vscdb');
-        default: // linux, freebsd, etc.
-            return join(home, '.config/Antigravity/User/globalStorage/state.vscdb');
-    }
-}
-
-/**
- * Generate platform-specific User-Agent string.
- * Returns a generic VS Code User-Agent to mimic legitimate traffic.
- * @returns {string} User-Agent string
- */
-function getPlatformUserAgent() {
-    const os = platform();
-    // Default to a recent stable VS Code version
-    const vscodeVer = '1.87.2';
-    const chromeVer = '118.0.5993.159';
-    const electronVer = '27.2.3';
-
-    if (os === 'darwin') {
-        return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
-    } else if (os === 'win32') {
-        return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
-    } else {
-        return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
-    }
-}
+// Re-export functions for backward compatibility
+export const getModelFamily = _getModelFamily;
+export const isThinkingModel = _isThinkingModel;
 
 // IDE Type enum (numeric values as expected by Cloud Code API)
 // Reference: Antigravity binary analysis - google.internal.cloud.code.v1internal.ClientMetadata.IdeType
@@ -72,18 +43,6 @@ export const PLUGIN_TYPE = {
     GEMINI: 2
 };
 
-/**
- * Get the platform enum value based on the current OS.
- * @returns {number} Platform enum value
- */
-function getPlatformEnum() {
-    switch (platform()) {
-        case 'darwin': return PLATFORM.MACOS;
-        case 'win32': return PLATFORM.WINDOWS;
-        case 'linux': return PLATFORM.LINUX;
-        default: return PLATFORM.UNSPECIFIED;
-    }
-}
 
 // Centralized client metadata (used in request bodies for loadCodeAssist, onboardUser, etc.)
 // Using numeric enum values as expected by the Cloud Code API
@@ -136,16 +95,10 @@ export const ANTIGRAVITY_AUTH_PORT = 9092;
 export const DEFAULT_PORT = config?.port || 8080;
 
 // Multi-account configuration
-export const ACCOUNT_CONFIG_PATH = config?.accountConfigPath || join(
-    homedir(),
-    '.config/antigravity-proxy/accounts.json'
-);
+export const ACCOUNT_CONFIG_PATH = config?.accountConfigPath || getDefaultAccountConfigPath();
 
 // Usage history persistence path
-export const USAGE_HISTORY_PATH = join(
-    homedir(),
-    '.config/antigravity-proxy/usage-history.json'
-);
+export const USAGE_HISTORY_PATH = getDefaultUsageHistoryPath();
 
 // Antigravity app database path (for legacy single-account token extraction)
 // Uses platform-specific path detection
@@ -219,36 +172,6 @@ export const GEMINI_SIGNATURE_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 // Cache TTL for model validation (5 minutes)
 export const MODEL_VALIDATION_CACHE_TTL_MS = 5 * 60 * 1000;
 
-/**
- * Get the model family from model name (dynamic detection, no hardcoded list).
- * @param {string} modelName - The model name from the request
- * @returns {'claude' | 'gemini' | 'unknown'} The model family
- */
-export function getModelFamily(modelName) {
-    const lower = (modelName || '').toLowerCase();
-    if (lower.includes('claude')) return 'claude';
-    if (lower.includes('gemini')) return 'gemini';
-    return 'unknown';
-}
-
-/**
- * Check if a model supports thinking/reasoning output.
- * @param {string} modelName - The model name from the request
- * @returns {boolean} True if the model supports thinking blocks
- */
-export function isThinkingModel(modelName) {
-    const lower = (modelName || '').toLowerCase();
-    // Claude thinking models have "thinking" in the name
-    if (lower.includes('claude') && lower.includes('thinking')) return true;
-    // Gemini thinking models: explicit "thinking" in name, OR gemini version 3+
-    if (lower.includes('gemini')) {
-        if (lower.includes('thinking')) return true;
-        // Check for gemini-3 or higher (e.g., gemini-3, gemini-3.5, gemini-4, etc.)
-        const versionMatch = lower.match(/gemini-(\d+)/);
-        if (versionMatch && parseInt(versionMatch[1], 10) >= 3) return true;
-    }
-    return false;
-}
 
 // Google OAuth configuration (from opencode-antigravity-auth)
 // OAuth callback port - configurable via environment variable for Windows compatibility (issue #176)
