@@ -42,6 +42,7 @@ const DEFAULT_CONFIG = {
     defaultCooldownMs: 10000,  // 10 seconds
     maxWaitBeforeErrorMs: 120000, // 2 minutes
     maxAccounts: 10, // Maximum number of accounts allowed
+    allowedOrigins: [], // Additional origins to permit in CORS (e.g. ['http://my-ui.com'])
     globalQuotaThreshold: 0, // 0 = disabled, 0.01-0.99 = minimum quota fraction before switching accounts
     requestThrottlingEnabled: false, // Opt-in: enable delay before Google API requests
     requestDelayMs: 200, // Delay in ms when throttling enabled (100-5000ms)

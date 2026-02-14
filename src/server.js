@@ -82,7 +82,39 @@ async function ensureInitialized() {
 }
 
 // Middleware
-app.use(cors());
+// Configure CORS to only allow localhost and specifically configured origins
+const corsOptions = {
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps, CLI tools, or curl requests)
+        if (!origin) return callback(null, true);
+
+        // Standard localhost patterns
+        const isLocalhost = origin === 'http://localhost' ||
+                           origin.startsWith('http://localhost:') ||
+                           origin === 'http://127.0.0.1' ||
+                           origin.startsWith('http://127.0.0.1:') ||
+                           origin === 'http://[::1]' ||
+                           origin.startsWith('http://[::1]:');
+
+        if (isLocalhost) {
+            return callback(null, true);
+        }
+
+        // Check against user-configured allowed origins
+        const allowedOrigins = config.allowedOrigins || [];
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+
+        // Deny all other origins
+        logger.warn(`[CORS] Blocked request from unauthorized origin: ${origin}`);
+        callback(null, false);
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-webui-password']
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
 
 // API Key authentication middleware for /v1/* endpoints
