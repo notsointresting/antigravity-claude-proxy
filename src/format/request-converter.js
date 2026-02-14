@@ -3,11 +3,8 @@
  * Converts Anthropic Messages API requests to Google Generative AI format
  */
 
-import {
-    GEMINI_MAX_OUTPUT_TOKENS,
-    getModelFamily,
-    isThinkingModel
-} from '../constants.js';
+import { GEMINI_MAX_OUTPUT_TOKENS } from '../constants.js';
+import { getModelFamily, isThinkingModel } from '../utils/helpers.js';
 import { convertContentToParts, convertRole } from './content-converter.js';
 import { sanitizeSchema, cleanSchema } from './schema-sanitizer.js';
 import {

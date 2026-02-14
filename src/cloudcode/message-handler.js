@@ -15,9 +15,9 @@ import {
     EXTENDED_COOLDOWN_MS,
     CAPACITY_BACKOFF_TIERS_MS,
     MAX_CAPACITY_RETRIES,
-    BACKOFF_BY_ERROR_TYPE,
-    isThinkingModel
+    BACKOFF_BY_ERROR_TYPE
 } from '../constants.js';
+import { isThinkingModel } from '../utils/helpers.js';
 import { convertGoogleToAnthropic } from '../format/index.js';
 import { isRateLimitError, isAuthError, isAccountForbiddenError, AccountForbiddenError } from '../errors.js';
 import { formatDuration, sleep, isNetworkError, throttledFetch } from '../utils/helpers.js';

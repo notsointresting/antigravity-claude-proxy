@@ -4,7 +4,8 @@
  */
 
 import crypto from 'crypto';
-import { MIN_SIGNATURE_LENGTH, getModelFamily } from '../constants.js';
+import { MIN_SIGNATURE_LENGTH } from '../constants.js';
+import { getModelFamily } from '../utils/helpers.js';
 import { cacheSignature, cacheThinkingSignature } from './signature-cache.js';
 
 /**

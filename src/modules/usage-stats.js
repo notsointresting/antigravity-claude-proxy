@@ -70,15 +70,44 @@ function load() {
 }
 
 /**
- * Save history to disk
+ * Save history to disk (asynchronous with coalescing)
  */
-function save() {
+let isSaving = false;
+let pendingSavePromise = null;
+let pendingSaveResolver = null;
+
+async function save() {
     if (!isDirty) return;
+
+    // Coalesce concurrent save requests
+    if (isSaving) {
+        if (pendingSavePromise) return pendingSavePromise;
+        pendingSavePromise = new Promise((resolve, reject) => {
+            pendingSaveResolver = { resolve, reject };
+        });
+        return pendingSavePromise;
+    }
+
+    isSaving = true;
+    isDirty = false;
+
     try {
-        fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
-        isDirty = false;
+        const data = JSON.stringify(history, null, 2);
+        await fs.promises.writeFile(HISTORY_FILE, data);
     } catch (err) {
+        // If save fails, mark as dirty to retry on next interval
+        isDirty = true;
         logger.error('[UsageStats] Failed to save history:', err);
+    } finally {
+        isSaving = false;
+
+        // If another save was requested while this one was in progress, run it now
+        if (pendingSavePromise) {
+            const { resolve, reject } = pendingSaveResolver;
+            pendingSavePromise = null;
+            pendingSaveResolver = null;
+            save().then(resolve).catch(reject);
+        }
     }
 }
 
@@ -144,13 +173,25 @@ function setupMiddleware(app) {
 
     // Auto-save every minute
     setInterval(() => {
-        save();
+        save().catch(err => logger.error('[UsageStats] Interval save failed:', err));
         prune();
     }, 60 * 1000);
 
     // Save on exit
-    process.on('SIGINT', () => { save(); process.exit(); });
-    process.on('SIGTERM', () => { save(); process.exit(); });
+    process.on('SIGINT', async () => {
+        try {
+            await save();
+        } finally {
+            process.exit();
+        }
+    });
+    process.on('SIGTERM', async () => {
+        try {
+            await save();
+        } finally {
+            process.exit();
+        }
+    });
 
     // Request interceptor
     // Track both Anthropic (/v1/messages) and OpenAI compatible (/v1/chat/completions) endpoints
