@@ -265,6 +265,8 @@ app.get('/health', async (req, res) => {
         const status = accountManager.getStatus();
         const allAccounts = accountManager.getAllAccounts();
 
+        let anyChanges = false;
+
         // Fetch quotas for each account in parallel to get detailed model info
         let anyChanges = false;
         const accountDetails = await Promise.allSettled(
@@ -398,6 +400,7 @@ app.get('/account-limits', async (req, res) => {
         const format = req.query.format || 'json';
         const includeHistory = req.query.includeHistory === 'true';
         const forceRefreshFlag = req.query.forceRefresh === 'true';
+        let anyChanges = false;
 
         // Fetch quotas for each account in parallel
         let anyChanges = false;
