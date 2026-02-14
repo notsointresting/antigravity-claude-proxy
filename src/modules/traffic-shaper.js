@@ -7,7 +7,7 @@
  */
 
 import { logger } from '../utils/logger.js';
-import { sleep } from '../utils/helpers.js';
+import { sleep, generateJitter } from '../utils/helpers.js';
 
 class TrafficShaper {
     constructor() {
@@ -45,8 +45,10 @@ class TrafficShaper {
             const now = Date.now();
             const timeSinceLast = now - this.lastRequestTime;
 
-            // Random delay: 3s to 5s
-            const requiredDelay = this.minDelayMs + Math.random() * this.jitterMs;
+            // Random delay: 3s to 5s (Gaussian centered at 4s)
+            // Use generateJitter to mimic natural human variance
+            const meanDelay = this.minDelayMs + (this.jitterMs / 2);
+            const requiredDelay = meanDelay + generateJitter(this.jitterMs);
 
             const waitTime = Math.max(0, requiredDelay - timeSinceLast);
 

@@ -76,7 +76,8 @@ export async function sendMessage(anthropicRequest, accountManager, fallbackEnab
                 );
             }
 
-            if (accountManager.isAllRateLimited(model)) {
+            // Only consider rate limits if we actually have accounts
+            if (accountManager.getAccountCount() > 0 && accountManager.isAllRateLimited(model)) {
                 const minWaitMs = accountManager.getMinWaitTimeMs(model);
                 const resetTime = new Date(Date.now() + minWaitMs).toISOString();
 
