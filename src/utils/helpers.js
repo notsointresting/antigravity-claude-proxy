@@ -187,12 +187,19 @@ export function generateJitter(maxJitterMs) {
     return z * stdev;
 }
 
+// Memoize the got-scraping options to prevent object allocation on every request
+let cachedGotScrapingOptions = null;
+
 /**
  * Get got-scraping options for current platform
  * Ensures TLS fingerprint matches the OS
  * @returns {Object} Header generator options
  */
 export function getGotScrapingOptions() {
+    if (cachedGotScrapingOptions) {
+        return cachedGotScrapingOptions;
+    }
+
     let os = 'windows'; // Default
     switch (process.platform) {
         case 'darwin': os = 'macos'; break;
@@ -200,12 +207,14 @@ export function getGotScrapingOptions() {
         case 'win32': os = 'windows'; break;
     }
 
-    return {
+    cachedGotScrapingOptions = {
         browsers: [{ name: 'chrome', minVersion: 110 }],
         devices: ['desktop'],
         locales: ['en-US'],
         operatingSystems: [os]
     };
+
+    return cachedGotScrapingOptions;
 }
 
 /**
