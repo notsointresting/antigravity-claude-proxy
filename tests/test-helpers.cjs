@@ -10,7 +10,13 @@ async function runTests() {
     console.log('╚══════════════════════════════════════════════════════════════╝\n');
 
     // Dynamic imports for ESM modules
-    const { isNetworkError } = await import('../src/utils/helpers.js');
+    const {
+        isNetworkError,
+        getGotScrapingOptions,
+        getPlatformUserAgent,
+        getAntigravityDbPath,
+        getPlatformEnum
+    } = await import('../src/utils/helpers.js');
 
     let passed = 0;
     let failed = 0;
@@ -89,6 +95,38 @@ async function runTests() {
         } catch (e) {
             throw new Error('Failed to handle empty message: ' + e.message);
         }
+    });
+
+    // =========================================================================
+    // Test Group: Memoization Checks
+    // =========================================================================
+    console.log('\n── Memoization Checks ──────────────────────────────────────');
+
+    test('getGotScrapingOptions returns same object reference', () => {
+        const opts1 = getGotScrapingOptions();
+        const opts2 = getGotScrapingOptions();
+        assertTrue(opts1 === opts2, 'Expected same object reference');
+
+        // Ensure it's frozen
+        assertTrue(Object.isFrozen(opts1), 'Expected object to be frozen');
+    });
+
+    test('getPlatformUserAgent returns consistent value', () => {
+        const ua1 = getPlatformUserAgent();
+        const ua2 = getPlatformUserAgent();
+        assertTrue(ua1 === ua2, 'Expected same string');
+    });
+
+    test('getAntigravityDbPath returns consistent value', () => {
+        const path1 = getAntigravityDbPath();
+        const path2 = getAntigravityDbPath();
+        assertTrue(path1 === path2, 'Expected same string');
+    });
+
+    test('getPlatformEnum returns consistent value', () => {
+        const enum1 = getPlatformEnum();
+        const enum2 = getPlatformEnum();
+        assertTrue(enum1 === enum2, 'Expected same number');
     });
 
     // =========================================================================
