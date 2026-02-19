@@ -26,6 +26,23 @@ import { logger } from '../utils/logger.js';
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    // Fast path: check if any message actually needs cleaning
+    // This avoids array allocation and object cloning for the majority of requests
+    const needsCleaning = messages.some(message =>
+        message &&
+        typeof message === 'object' &&
+        Array.isArray(message.content) &&
+        message.content.some(block =>
+            block &&
+            typeof block === 'object' &&
+            block.cache_control !== undefined
+        )
+    );
+
+    if (!needsCleaning) {
+        return messages;
+    }
+
     let removedCount = 0;
 
     const cleaned = messages.map(message => {
@@ -36,6 +53,17 @@ export function cleanCacheControl(messages) {
 
         // Handle array content
         if (!Array.isArray(message.content)) return message;
+
+        // Check if this specific message needs cleaning to avoid cloning clean messages
+        const messageNeedsCleaning = message.content.some(block =>
+            block &&
+            typeof block === 'object' &&
+            block.cache_control !== undefined
+        );
+
+        if (!messageNeedsCleaning) {
+            return message;
+        }
 
         const cleanedContent = message.content.map(block => {
             if (!block || typeof block !== 'object') return block;
