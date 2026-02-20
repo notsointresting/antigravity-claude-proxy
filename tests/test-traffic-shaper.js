@@ -16,51 +16,65 @@ async function runTest() {
     const start = Date.now();
     const results = [];
 
-    // Queue 3 tasks rapidly
-    const p1 = trafficShaper.enqueue(async () => {
+    // Test 1: Sequential for same key
+    console.log('Test 1: Sequential for same key');
+    const p1 = trafficShaper.enqueue('key1', async () => {
         console.log('Task 1 executing');
-        results.push({ id: 1, time: Date.now() });
+        results.push({ id: 1, key: 'key1', time: Date.now() });
         return 1;
     });
 
-    const p2 = trafficShaper.enqueue(async () => {
+    const p2 = trafficShaper.enqueue('key1', async () => {
         console.log('Task 2 executing');
-        results.push({ id: 2, time: Date.now() });
+        results.push({ id: 2, key: 'key1', time: Date.now() });
         return 2;
     });
 
-    const p3 = trafficShaper.enqueue(async () => {
-        console.log('Task 3 executing');
-        results.push({ id: 3, time: Date.now() });
-        return 3;
-    });
-
-    await Promise.all([p1, p2, p3]);
-
-    const end = Date.now();
-    const duration = end - start;
-
-    console.log(`Total duration: ${duration}ms`);
-    console.log('Results:', results);
+    await Promise.all([p1, p2]);
 
     // Check ordering
     assert.strictEqual(results[0].id, 1);
     assert.strictEqual(results[1].id, 2);
-    assert.strictEqual(results[2].id, 3);
-
-    // Check timing - should be at least minDelayMs between tasks
-    // Task 1 starts immediately (or close to it)
-    // Task 2 starts after ~500ms
-    // Task 3 starts after ~500ms from Task 2
 
     const diff1 = results[1].time - results[0].time;
-    const diff2 = results[2].time - results[1].time;
+    console.log(`Diff 1-2 (same key): ${diff1}ms`);
+    assert(diff1 >= 500, 'Task 2 (key1) should wait for delay');
 
-    console.log(`Diff 1-2: ${diff1}ms`);
-    console.log(`Diff 2-3: ${diff2}ms`);
+    // Test 2: Parallel for different keys
+    console.log('Test 2: Parallel for different keys');
+    const start2 = Date.now();
+    const p3 = trafficShaper.enqueue('key2', async () => {
+        console.log('Task 3 executing');
+        results.push({ id: 3, key: 'key2', time: Date.now() });
+        await sleep(100); // simulate work
+        return 3;
+    });
 
-    assert(diff1 >= 500, 'Task 2 should wait for delay');
-    assert(diff2 >= 500, 'Task 3 should wait for delay');
+    const p4 = trafficShaper.enqueue('key3', async () => {
+        console.log('Task 4 executing');
+        results.push({ id: 4, key: 'key3', time: Date.now() });
+        await sleep(100);
+        return 4;
+    });
+
+    await Promise.all([p3, p4]);
+
+    // Both should start almost immediately relative to start2
+    // because they are fresh keys with no history
+    const diff3 = results[2].time - start2;
+    const diff4 = results[3].time - start2;
+
+    console.log(`Task 3 start delay: ${diff3}ms`);
+    console.log(`Task 4 start delay: ${diff4}ms`);
+
+    // Allow small overhead (e.g. 200ms)
+    assert(diff3 < 200, 'Task 3 (key2) should start immediately');
+    assert(diff4 < 200, 'Task 4 (key3) should start immediately');
+
+    // Also check that they ran in parallel (their start times are close)
+    const parallelDiff = Math.abs(results[2].time - results[3].time);
+    console.log(`Parallel start diff: ${parallelDiff}ms`);
+    assert(parallelDiff < 100, 'Tasks 3 and 4 should start in parallel');
 
     console.log('Traffic Shaper Test PASSED');
 }
