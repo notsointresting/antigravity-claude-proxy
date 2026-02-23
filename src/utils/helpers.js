@@ -192,7 +192,10 @@ export function generateJitter(maxJitterMs) {
  * Ensures TLS fingerprint matches the OS
  * @returns {Object} Header generator options
  */
+let cachedGotScrapingOptions = null;
 export function getGotScrapingOptions() {
+    if (cachedGotScrapingOptions) return cachedGotScrapingOptions;
+
     let os = 'windows'; // Default
     switch (process.platform) {
         case 'darwin': os = 'macos'; break;
@@ -200,12 +203,14 @@ export function getGotScrapingOptions() {
         case 'win32': os = 'windows'; break;
     }
 
-    return {
-        browsers: [{ name: 'chrome', minVersion: 110 }],
-        devices: ['desktop'],
-        locales: ['en-US'],
-        operatingSystems: [os]
+    cachedGotScrapingOptions = {
+        browsers: Object.freeze([{ name: 'chrome', minVersion: 110 }]),
+        devices: Object.freeze(['desktop']),
+        locales: Object.freeze(['en-US']),
+        operatingSystems: Object.freeze([os])
     };
+    Object.freeze(cachedGotScrapingOptions);
+    return cachedGotScrapingOptions;
 }
 
 /**
@@ -215,16 +220,23 @@ export function getGotScrapingOptions() {
  * - Linux/other: ~/.config/Antigravity/...
  * @returns {string} Full path to the Antigravity state database
  */
+let cachedAntigravityDbPath = null;
 export function getAntigravityDbPath() {
+    if (cachedAntigravityDbPath) return cachedAntigravityDbPath;
+
     const home = homedir();
     switch (platform()) {
         case 'darwin':
-            return path.join(home, 'Library/Application Support/Antigravity/User/globalStorage/state.vscdb');
+            cachedAntigravityDbPath = path.join(home, 'Library/Application Support/Antigravity/User/globalStorage/state.vscdb');
+            break;
         case 'win32':
-            return path.join(home, 'AppData/Roaming/Antigravity/User/globalStorage/state.vscdb');
+            cachedAntigravityDbPath = path.join(home, 'AppData/Roaming/Antigravity/User/globalStorage/state.vscdb');
+            break;
         default: // linux, freebsd, etc.
-            return path.join(home, '.config/Antigravity/User/globalStorage/state.vscdb');
+            cachedAntigravityDbPath = path.join(home, '.config/Antigravity/User/globalStorage/state.vscdb');
+            break;
     }
+    return cachedAntigravityDbPath;
 }
 
 /**
@@ -232,7 +244,10 @@ export function getAntigravityDbPath() {
  * Returns a generic VS Code User-Agent to mimic legitimate traffic.
  * @returns {string} User-Agent string
  */
+let cachedPlatformUserAgent = null;
 export function getPlatformUserAgent() {
+    if (cachedPlatformUserAgent) return cachedPlatformUserAgent;
+
     const os = platform();
     // Default to a recent stable VS Code version
     const vscodeVer = '1.87.2';
@@ -240,12 +255,13 @@ export function getPlatformUserAgent() {
     const electronVer = '27.2.3';
 
     if (os === 'darwin') {
-        return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
+        cachedPlatformUserAgent = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
     } else if (os === 'win32') {
-        return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
+        cachedPlatformUserAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
     } else {
-        return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
+        cachedPlatformUserAgent = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
     }
+    return cachedPlatformUserAgent;
 }
 
 /**
@@ -253,13 +269,17 @@ export function getPlatformUserAgent() {
  * Reference: Antigravity binary analysis - google.internal.cloud.code.v1internal.ClientMetadata.Platform
  * @returns {number} Platform enum value (0: UNSPECIFIED, 1: WINDOWS, 2: LINUX, 3: MACOS)
  */
+let cachedPlatformEnum = null;
 export function getPlatformEnum() {
+    if (cachedPlatformEnum !== null) return cachedPlatformEnum;
+
     switch (platform()) {
-        case 'darwin': return 3; // MACOS
-        case 'win32': return 1; // WINDOWS
-        case 'linux': return 2; // LINUX
-        default: return 0; // UNSPECIFIED
+        case 'darwin': cachedPlatformEnum = 3; break; // MACOS
+        case 'win32': cachedPlatformEnum = 1; break; // WINDOWS
+        case 'linux': cachedPlatformEnum = 2; break; // LINUX
+        default: cachedPlatformEnum = 0; break; // UNSPECIFIED
     }
+    return cachedPlatformEnum;
 }
 
 /**

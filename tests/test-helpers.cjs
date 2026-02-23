@@ -10,7 +10,13 @@ async function runTests() {
     console.log('╚══════════════════════════════════════════════════════════════╝\n');
 
     // Dynamic imports for ESM modules
-    const { isNetworkError } = await import('../src/utils/helpers.js');
+    const {
+        isNetworkError,
+        getGotScrapingOptions,
+        getAntigravityDbPath,
+        getPlatformUserAgent,
+        getPlatformEnum
+    } = await import('../src/utils/helpers.js');
 
     let passed = 0;
     let failed = 0;
@@ -89,6 +95,42 @@ async function runTests() {
         } catch (e) {
             throw new Error('Failed to handle empty message: ' + e.message);
         }
+    });
+
+    // =========================================================================
+    // Test Group: Memoization
+    // =========================================================================
+    console.log('\n── Memoization & Caching ───────────────────────────────────');
+
+    test('getGotScrapingOptions returns same instance', () => {
+        const options1 = getGotScrapingOptions();
+        const options2 = getGotScrapingOptions();
+        assertTrue(options1 === options2, 'Expected same object reference');
+    });
+
+    test('getGotScrapingOptions returns frozen object', () => {
+        const options = getGotScrapingOptions();
+        assertTrue(Object.isFrozen(options), 'Expected object to be frozen');
+        assertTrue(Object.isFrozen(options.browsers), 'Expected browsers array to be frozen');
+        assertTrue(Object.isFrozen(options.devices), 'Expected devices array to be frozen');
+    });
+
+    test('getAntigravityDbPath returns same string', () => {
+        const path1 = getAntigravityDbPath();
+        const path2 = getAntigravityDbPath();
+        assertTrue(path1 === path2, 'Expected same string');
+    });
+
+    test('getPlatformUserAgent returns same string', () => {
+        const ua1 = getPlatformUserAgent();
+        const ua2 = getPlatformUserAgent();
+        assertTrue(ua1 === ua2, 'Expected same string');
+    });
+
+    test('getPlatformEnum returns same value', () => {
+        const enum1 = getPlatformEnum();
+        const enum2 = getPlatformEnum();
+        assertTrue(enum1 === enum2, 'Expected same value');
     });
 
     // =========================================================================
