@@ -10,7 +10,7 @@ async function runTests() {
     console.log('╚══════════════════════════════════════════════════════════════╝\n');
 
     // Dynamic imports for ESM modules
-    const { isNetworkError } = await import('../src/utils/helpers.js');
+    const { isNetworkError, getGotScrapingOptions } = await import('../src/utils/helpers.js');
 
     let passed = 0;
     let failed = 0;
@@ -89,6 +89,35 @@ async function runTests() {
         } catch (e) {
             throw new Error('Failed to handle empty message: ' + e.message);
         }
+    });
+
+    // =========================================================================
+    // Test Group: getGotScrapingOptions()
+    // =========================================================================
+    console.log('\n── getGotScrapingOptions() Structure ───────────────────────');
+
+    test('returns correct structure', () => {
+        const options = getGotScrapingOptions();
+
+        // Basic structure check
+        assertTrue(Array.isArray(options.browsers), 'browsers should be an array');
+        assertTrue(Array.isArray(options.devices), 'devices should be an array');
+        assertTrue(Array.isArray(options.locales), 'locales should be an array');
+        assertTrue(Array.isArray(options.operatingSystems), 'operatingSystems should be an array');
+
+        // Content check
+        assertTrue(options.devices.includes('desktop'), 'devices should include desktop');
+        assertTrue(options.locales.includes('en-US'), 'locales should include en-US');
+    });
+
+    test('memoization check (referential equality)', () => {
+        const options1 = getGotScrapingOptions();
+        const options2 = getGotScrapingOptions();
+
+        // If optimization is applied, this should be true (same object reference)
+        // Before optimization, this might fail or pass depending on implementation detail,
+        // but we want to assert it DOES pass after we optimize.
+        assertTrue(options1 === options2, 'Should return the same object reference (memoized)');
     });
 
     // =========================================================================
