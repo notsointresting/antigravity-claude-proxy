@@ -26,6 +26,17 @@ import { logger } from '../utils/logger.js';
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    // Fast path: Check if any cleaning is actually needed to avoid unnecessary allocations
+    const needsCleaning = messages.some(msg =>
+        msg && typeof msg === 'object' &&
+        Array.isArray(msg.content) &&
+        msg.content.some(block =>
+            block && typeof block === 'object' && block.cache_control !== undefined
+        )
+    );
+
+    if (!needsCleaning) return messages;
+
     let removedCount = 0;
 
     const cleaned = messages.map(message => {
