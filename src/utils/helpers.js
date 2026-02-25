@@ -187,10 +187,8 @@ export function generateJitter(maxJitterMs) {
     return z * stdev;
 }
 
-// Memoized values
-let cachedScrapingOptions = null;
-let cachedDbPath = null;
-let cachedUserAgent = null;
+// Memoize the got-scraping options to prevent object allocation on every request
+let cachedGotScrapingOptions = null;
 
 /**
  * Get got-scraping options for current platform
@@ -199,7 +197,9 @@ let cachedUserAgent = null;
  * @returns {Object} Header generator options (Frozen to prevent mutation)
  */
 export function getGotScrapingOptions() {
-    if (cachedScrapingOptions) return cachedScrapingOptions;
+    if (cachedGotScrapingOptions) {
+        return cachedGotScrapingOptions;
+    }
 
     let os = 'windows'; // Default
     switch (process.platform) {
@@ -208,22 +208,14 @@ export function getGotScrapingOptions() {
         case 'win32': os = 'windows'; break;
     }
 
-    cachedScrapingOptions = {
+    cachedGotScrapingOptions = {
         browsers: [{ name: 'chrome', minVersion: 110 }],
         devices: ['desktop'],
         locales: ['en-US'],
         operatingSystems: [os]
     };
 
-    // Freeze to prevent mutation of shared cache
-    Object.freeze(cachedScrapingOptions);
-    Object.freeze(cachedScrapingOptions.browsers);
-    Object.freeze(cachedScrapingOptions.browsers[0]);
-    Object.freeze(cachedScrapingOptions.devices);
-    Object.freeze(cachedScrapingOptions.locales);
-    Object.freeze(cachedScrapingOptions.operatingSystems);
-
-    return cachedScrapingOptions;
+    return cachedGotScrapingOptions;
 }
 
 /**
