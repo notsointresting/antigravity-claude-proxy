@@ -196,6 +196,7 @@ let cachedGotScrapingOptions = null;
  * Performance: Memoized to avoid object allocation on every request (called by throttledFetch).
  * @returns {Object} Header generator options (Frozen to prevent mutation)
  */
+let cachedGotScrapingOptions = null;
 export function getGotScrapingOptions() {
     if (cachedGotScrapingOptions) {
         return cachedGotScrapingOptions;
@@ -226,6 +227,7 @@ export function getGotScrapingOptions() {
  * - Linux/other: ~/.config/Antigravity/...
  * @returns {string} Full path to the Antigravity state database
  */
+let cachedAntigravityDbPath = null;
 export function getAntigravityDbPath() {
     if (cachedDbPath) return cachedDbPath;
 
@@ -250,6 +252,7 @@ export function getAntigravityDbPath() {
  * Performance: Memoized to avoid string concatenation on startup/calls.
  * @returns {string} User-Agent string
  */
+let cachedPlatformUserAgent = null;
 export function getPlatformUserAgent() {
     if (cachedUserAgent) return cachedUserAgent;
 
@@ -274,13 +277,16 @@ export function getPlatformUserAgent() {
  * Reference: Antigravity binary analysis - google.internal.cloud.code.v1internal.ClientMetadata.Platform
  * @returns {number} Platform enum value (0: UNSPECIFIED, 1: WINDOWS, 2: LINUX, 3: MACOS)
  */
+let cachedPlatformEnum = null;
 export function getPlatformEnum() {
+    if (cachedPlatformEnum !== null) return cachedPlatformEnum;
     switch (platform()) {
-        case 'darwin': return 3; // MACOS
-        case 'win32': return 1; // WINDOWS
-        case 'linux': return 2; // LINUX
-        default: return 0; // UNSPECIFIED
+        case 'darwin': cachedPlatformEnum = 3; break; // MACOS
+        case 'win32': cachedPlatformEnum = 1; break; // WINDOWS
+        case 'linux': cachedPlatformEnum = 2; break; // LINUX
+        default: cachedPlatformEnum = 0; // UNSPECIFIED
     }
+    return cachedPlatformEnum;
 }
 
 /**
