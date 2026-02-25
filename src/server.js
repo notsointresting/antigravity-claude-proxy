@@ -893,9 +893,9 @@ app.post('/v1/messages', async (req, res) => {
             // to ensure we don't send a 200 OK if the upstream fails immediately (e.g. 429/503).
 
             try {
-                // Initialize the generator (wrapped in traffic shaper)
-                // Note: We only queue the START of the stream. Once started, chunks flow freely.
-                const generator = await trafficShaper.enqueue(() => Promise.resolve(sendMessageStream(request, accountManager, FALLBACK_ENABLED)));
+                // Initialize the generator
+                // Note: Traffic shaping is now handled inside sendMessageStream per account
+                const generator = sendMessageStream(request, accountManager, FALLBACK_ENABLED);
                 
                 // BUFFERING STRATEGY:
                 // Pull the first event *before* sending headers. 
@@ -953,7 +953,8 @@ app.post('/v1/messages', async (req, res) => {
 
         } else {
             // Handle non-streaming response
-            const response = await trafficShaper.enqueue(() => sendMessage(request, accountManager, FALLBACK_ENABLED));
+            // Note: Traffic shaping is now handled inside sendMessage per account
+            const response = await sendMessage(request, accountManager, FALLBACK_ENABLED);
             res.json(response);
         }
 

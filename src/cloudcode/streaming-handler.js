@@ -21,6 +21,7 @@ import {
 import { isRateLimitError, isAuthError, isEmptyResponseError, isAccountForbiddenError, AccountForbiddenError } from '../errors.js';
 import { formatDuration, sleep, isNetworkError, throttledFetch } from '../utils/helpers.js';
 import { logger } from '../utils/logger.js';
+import { trafficShaper } from '../modules/traffic-shaper.js';
 import { parseResetTime } from './rate-limit-parser.js';
 import { buildCloudCodeRequest, buildHeaders } from './request-builder.js';
 import { streamSSEResponse } from './sse-streamer.js';
@@ -137,286 +138,300 @@ export async function* sendMessageStream(anthropicRequest, accountManager, fallb
         }
 
         try {
-            // Get token and project for this account
-            const token = await accountManager.getTokenForAccount(account);
-            const project = await accountManager.getProjectForAccount(account, token);
-            const payload = buildCloudCodeRequest(anthropicRequest, project);
+            // Apply traffic shaping per account (Human Speed Limit)
+            // Acquire lock and wait if needed
+            await trafficShaper.acquire(account.email);
 
-            logger.debug(`[CloudCode] Starting stream for model: ${model}`);
+            try {
+                // Get token and project for this account
+                const token = await accountManager.getTokenForAccount(account);
+                const project = await accountManager.getProjectForAccount(account, token);
+                const payload = buildCloudCodeRequest(anthropicRequest, project);
 
-            // Try each endpoint with index-based loop for capacity retry support
-            let lastError = null;
-            let capacityRetryCount = 0;
-            let endpointIndex = 0;
+                logger.debug(`[CloudCode] Starting stream for model: ${model}`);
 
-            while (endpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
-                const endpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[endpointIndex];
-                try {
-                    const url = `${endpoint}/v1internal:streamGenerateContent?alt=sse`;
+                // Try each endpoint with index-based loop for capacity retry support
+                let lastError = null;
+                let capacityRetryCount = 0;
+                let endpointIndex = 0;
 
-                    const response = await throttledFetch(url, {
-                        method: 'POST',
-                        headers: buildHeaders(token, model, 'text/event-stream', account.fingerprint),
-                        body: JSON.stringify(payload)
-                    });
+                while (endpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
+                    const endpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[endpointIndex];
+                    try {
+                        const url = `${endpoint}/v1internal:streamGenerateContent?alt=sse`;
 
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        logger.warn(`[CloudCode] Stream error at ${endpoint}: ${response.status} - ${errorText}`);
+                        const response = await throttledFetch(url, {
+                            method: 'POST',
+                            headers: buildHeaders(token, model, 'text/event-stream', account.fingerprint),
+                            body: JSON.stringify(payload)
+                        });
 
-                        if (response.status === 401) {
-                            // Check for permanent auth failures
-                            if (isPermanentAuthFailure(errorText)) {
-                                logger.error(`[CloudCode] Permanent auth failure for ${account.email}: ${errorText.substring(0, 100)}`);
-                                accountManager.markInvalid(account.email, 'Token revoked - re-authentication required');
-                                throw new Error(`AUTH_INVALID_PERMANENT: ${errorText}`);
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            logger.warn(`[CloudCode] Stream error at ${endpoint}: ${response.status} - ${errorText}`);
+
+                            if (response.status === 401) {
+                                // Check for permanent auth failures
+                                if (isPermanentAuthFailure(errorText)) {
+                                    logger.error(`[CloudCode] Permanent auth failure for ${account.email}: ${errorText.substring(0, 100)}`);
+                                    accountManager.markInvalid(account.email, 'Token revoked - re-authentication required');
+                                    throw new Error(`AUTH_INVALID_PERMANENT: ${errorText}`);
+                                }
+
+                                // Transient auth error - clear caches and retry
+                                accountManager.clearTokenCache(account.email);
+                                accountManager.clearProjectCache(account.email);
+                                endpointIndex++;
+                                continue;
                             }
 
-                            // Transient auth error - clear caches and retry
-                            accountManager.clearTokenCache(account.email);
-                            accountManager.clearProjectCache(account.email);
-                            endpointIndex++;
-                            continue;
-                        }
+                            if (response.status === 429) {
+                                const resetMs = parseResetTime(response, errorText);
+                                const consecutiveFailures = accountManager.getConsecutiveFailures?.(account.email) || 0;
 
-                        if (response.status === 429) {
-                            const resetMs = parseResetTime(response, errorText);
-                            const consecutiveFailures = accountManager.getConsecutiveFailures?.(account.email) || 0;
+                                // Human Pause: 5-10s before retry decision
+                                await sleep(5000 + Math.random() * 5000);
 
-                            // Human Pause: 5-10s before retry decision
-                            await sleep(5000 + Math.random() * 5000);
+                                // Check if capacity issue (NOT quota) - retry same endpoint with progressive backoff
+                                if (isModelCapacityExhausted(errorText)) {
+                                    if (capacityRetryCount < MAX_CAPACITY_RETRIES) {
+                                        // Progressive capacity backoff tiers
+                                        const tierIndex = Math.min(capacityRetryCount, CAPACITY_BACKOFF_TIERS_MS.length - 1);
+                                        const waitMs = resetMs || CAPACITY_BACKOFF_TIERS_MS[tierIndex];
+                                        capacityRetryCount++;
+                                        // Track failures for progressive backoff escalation (matches opencode-antigravity-auth)
+                                        accountManager.incrementConsecutiveFailures(account.email);
+                                        logger.info(`[CloudCode] Model capacity exhausted, retry ${capacityRetryCount}/${MAX_CAPACITY_RETRIES} after ${formatDuration(waitMs)}...`);
+                                        await sleep(waitMs);
+                                        // Don't increment endpointIndex - retry same endpoint
+                                        continue;
+                                    }
+                                    // Max capacity retries exceeded - treat as quota exhaustion
+                                    logger.warn(`[CloudCode] Max capacity retries (${MAX_CAPACITY_RETRIES}) exceeded, switching account`);
+                                }
 
-                            // Check if capacity issue (NOT quota) - retry same endpoint with progressive backoff
-                            if (isModelCapacityExhausted(errorText)) {
-                                if (capacityRetryCount < MAX_CAPACITY_RETRIES) {
-                                    // Progressive capacity backoff tiers
-                                    const tierIndex = Math.min(capacityRetryCount, CAPACITY_BACKOFF_TIERS_MS.length - 1);
-                                    const waitMs = resetMs || CAPACITY_BACKOFF_TIERS_MS[tierIndex];
-                                    capacityRetryCount++;
-                                    // Track failures for progressive backoff escalation (matches opencode-antigravity-auth)
-                                    accountManager.incrementConsecutiveFailures(account.email);
-                                    logger.info(`[CloudCode] Model capacity exhausted, retry ${capacityRetryCount}/${MAX_CAPACITY_RETRIES} after ${formatDuration(waitMs)}...`);
+                                // Get rate limit backoff with exponential backoff and state reset
+                                const backoff = getRateLimitBackoff(account.email, model, resetMs);
+
+                                // For very short rate limits (< 1 second), always wait and retry
+                                // Switching accounts won't help when all accounts have per-second rate limits
+                                if (resetMs !== null && resetMs < 1000) {
+                                    const waitMs = resetMs;
+                                    logger.info(`[CloudCode] Short rate limit on ${account.email} (${resetMs}ms), waiting and retrying...`);
                                     await sleep(waitMs);
                                     // Don't increment endpointIndex - retry same endpoint
                                     continue;
                                 }
-                                // Max capacity retries exceeded - treat as quota exhaustion
-                                logger.warn(`[CloudCode] Max capacity retries (${MAX_CAPACITY_RETRIES}) exceeded, switching account`);
-                            }
 
-                            // Get rate limit backoff with exponential backoff and state reset
-                            const backoff = getRateLimitBackoff(account.email, model, resetMs);
+                                // If within dedup window AND reset time is >= 1s, switch account
+                                if (backoff.isDuplicate) {
+                                    const smartBackoffMs = calculateSmartBackoff(errorText, resetMs, consecutiveFailures);
+                                    logger.info(`[CloudCode] Skipping retry due to recent rate limit on ${account.email} (attempt ${backoff.attempt}), switching account...`);
+                                    accountManager.markRateLimited(account.email, smartBackoffMs, model);
+                                    throw new Error(`RATE_LIMITED_DEDUP: ${errorText}`);
+                                }
 
-                            // For very short rate limits (< 1 second), always wait and retry
-                            // Switching accounts won't help when all accounts have per-second rate limits
-                            if (resetMs !== null && resetMs < 1000) {
-                                const waitMs = resetMs;
-                                logger.info(`[CloudCode] Short rate limit on ${account.email} (${resetMs}ms), waiting and retrying...`);
-                                await sleep(waitMs);
-                                // Don't increment endpointIndex - retry same endpoint
-                                continue;
-                            }
-
-                            // If within dedup window AND reset time is >= 1s, switch account
-                            if (backoff.isDuplicate) {
+                                // Calculate smart backoff based on error type
                                 const smartBackoffMs = calculateSmartBackoff(errorText, resetMs, consecutiveFailures);
-                                logger.info(`[CloudCode] Skipping retry due to recent rate limit on ${account.email} (attempt ${backoff.attempt}), switching account...`);
-                                accountManager.markRateLimited(account.email, smartBackoffMs, model);
-                                throw new Error(`RATE_LIMITED_DEDUP: ${errorText}`);
+
+                                // Decision: wait and retry OR switch account
+                                // First 429 gets a quick 1s retry (FIRST_RETRY_DELAY_MS)
+                                if (backoff.attempt === 1 && smartBackoffMs <= DEFAULT_COOLDOWN_MS) {
+                                    // Quick 1s retry on first 429 (matches opencode-antigravity-auth)
+                                    const waitMs = backoff.delayMs;
+                                    // markRateLimited already increments consecutiveFailures internally
+                                    accountManager.markRateLimited(account.email, waitMs, model);
+                                    logger.info(`[CloudCode] First rate limit on ${account.email}, quick retry after ${formatDuration(waitMs)}...`);
+                                    await sleep(waitMs);
+                                    // Don't increment endpointIndex - retry same endpoint
+                                    continue;
+                                } else if (smartBackoffMs > DEFAULT_COOLDOWN_MS) {
+                                    // Long-term quota exhaustion (> 10s) - wait SWITCH_ACCOUNT_DELAY_MS then switch
+                                    logger.info(`[CloudCode] Quota exhausted for ${account.email} (${formatDuration(smartBackoffMs)}), switching account after ${formatDuration(SWITCH_ACCOUNT_DELAY_MS)} delay...`);
+                                    await sleep(SWITCH_ACCOUNT_DELAY_MS);
+                                    accountManager.markRateLimited(account.email, smartBackoffMs, model);
+                                    throw new Error(`QUOTA_EXHAUSTED: ${errorText}`);
+                                } else {
+                                    // Short-term rate limit but not first attempt - use exponential backoff delay
+                                    const waitMs = backoff.delayMs;
+                                    // markRateLimited already increments consecutiveFailures internally
+                                    accountManager.markRateLimited(account.email, waitMs, model);
+                                    logger.info(`[CloudCode] Rate limit on ${account.email} (attempt ${backoff.attempt}), waiting ${formatDuration(waitMs)}...`);
+                                    await sleep(waitMs);
+                                    // Don't increment endpointIndex - retry same endpoint
+                                    continue;
+                                }
                             }
 
-                            // Calculate smart backoff based on error type
-                            const smartBackoffMs = calculateSmartBackoff(errorText, resetMs, consecutiveFailures);
-
-                            // Decision: wait and retry OR switch account
-                            // First 429 gets a quick 1s retry (FIRST_RETRY_DELAY_MS)
-                            if (backoff.attempt === 1 && smartBackoffMs <= DEFAULT_COOLDOWN_MS) {
-                                // Quick 1s retry on first 429 (matches opencode-antigravity-auth)
-                                const waitMs = backoff.delayMs;
-                                // markRateLimited already increments consecutiveFailures internally
-                                accountManager.markRateLimited(account.email, waitMs, model);
-                                logger.info(`[CloudCode] First rate limit on ${account.email}, quick retry after ${formatDuration(waitMs)}...`);
-                                await sleep(waitMs);
-                                // Don't increment endpointIndex - retry same endpoint
-                                continue;
-                            } else if (smartBackoffMs > DEFAULT_COOLDOWN_MS) {
-                                // Long-term quota exhaustion (> 10s) - wait SWITCH_ACCOUNT_DELAY_MS then switch
-                                logger.info(`[CloudCode] Quota exhausted for ${account.email} (${formatDuration(smartBackoffMs)}), switching account after ${formatDuration(SWITCH_ACCOUNT_DELAY_MS)} delay...`);
-                                await sleep(SWITCH_ACCOUNT_DELAY_MS);
-                                accountManager.markRateLimited(account.email, smartBackoffMs, model);
-                                throw new Error(`QUOTA_EXHAUSTED: ${errorText}`);
-                            } else {
-                                // Short-term rate limit but not first attempt - use exponential backoff delay
-                                const waitMs = backoff.delayMs;
-                                // markRateLimited already increments consecutiveFailures internally
-                                accountManager.markRateLimited(account.email, waitMs, model);
-                                logger.info(`[CloudCode] Rate limit on ${account.email} (attempt ${backoff.attempt}), waiting ${formatDuration(waitMs)}...`);
-                                await sleep(waitMs);
-                                // Don't increment endpointIndex - retry same endpoint
-                                continue;
-                            }
-                        }
-
-                        // Check for 503/529 MODEL_CAPACITY_EXHAUSTED - use progressive backoff like 429 capacity
-                        // 529 = Site Overloaded (same treatment as 503)
-                        if ((response.status === 503 || response.status === 529) && isModelCapacityExhausted(errorText)) {
-                            if (capacityRetryCount < MAX_CAPACITY_RETRIES) {
-                                // Progressive capacity backoff tiers (same as 429 capacity handling)
-                                const tierIndex = Math.min(capacityRetryCount, CAPACITY_BACKOFF_TIERS_MS.length - 1);
-                                const waitMs = CAPACITY_BACKOFF_TIERS_MS[tierIndex];
-                                capacityRetryCount++;
-                                accountManager.incrementConsecutiveFailures(account.email);
-                                logger.info(`[CloudCode] ${response.status} Model capacity exhausted, retry ${capacityRetryCount}/${MAX_CAPACITY_RETRIES} after ${formatDuration(waitMs)}...`);
-                                await sleep(waitMs);
-                                // Don't increment endpointIndex - retry same endpoint
-                                continue;
-                            }
-                            // Max capacity retries exceeded - switch account
-                            logger.warn(`[CloudCode] Max capacity retries (${MAX_CAPACITY_RETRIES}) exceeded on ${response.status}, switching account`);
-                            accountManager.markRateLimited(account.email, BACKOFF_BY_ERROR_TYPE.MODEL_CAPACITY_EXHAUSTED, model);
-                            throw new Error(`CAPACITY_EXHAUSTED: ${errorText}`);
-                        }
-
-                        // 400 errors are client errors - fail immediately, don't retry or switch accounts
-                        // Examples: token limit exceeded, invalid schema, malformed request
-                        if (response.status === 400) {
-                            logger.error(`[CloudCode] Invalid request (400): ${errorText.substring(0, 200)}`);
-                            throw new Error(`invalid_request_error: ${errorText}`);
-                        }
-
-                        // 403 with VALIDATION_REQUIRED or PERMISSION_DENIED is an account-level error
-                        // The account needs validation (captcha, terms, etc.) - trying different endpoints won't help
-                        // Mark account as invalid (requires user intervention) and rotate (fixes #248)
-                        if (response.status === 403 && isValidationRequired(errorText)) {
-                            // Human Pause: 5-10s before giving up
-                            await sleep(5000 + Math.random() * 5000);
-                            const verifyUrl = extractVerificationUrl(errorText);
-                            logger.warn(`[CloudCode] 403 VALIDATION_REQUIRED/PERMISSION_DENIED for ${account.email}, marking invalid and rotating account...`);
-                            accountManager.markInvalid(account.email, 'Account requires verification', verifyUrl);
-                            throw new AccountForbiddenError(errorText, account.email);
-                        }
-
-                        lastError = new Error(`API error ${response.status}: ${errorText}`);
-
-                        // Try next endpoint for 403/404/5xx errors (matches opencode-antigravity-auth behavior)
-                        if (response.status === 403 || response.status === 404) {
-                            logger.warn(`[CloudCode] ${response.status} at ${endpoint}..`);
-                        } else if (response.status >= 500) {
-                            logger.warn(`[CloudCode] ${response.status} stream error, waiting 1s before retry...`);
-                            await sleep(1000);
-                        }
-
-                        endpointIndex++;
-                        continue;
-                    }
-
-                    // Stream the response with retry logic for empty responses
-                    let currentResponse = response;
-
-                    for (let emptyRetries = 0; emptyRetries <= MAX_EMPTY_RESPONSE_RETRIES; emptyRetries++) {
-                        try {
-                            yield* streamSSEResponse(currentResponse, anthropicRequest.model);
-                            logger.debug('[CloudCode] Stream completed');
-                            // Clear rate limit state on success
-                            clearRateLimitState(account.email, model);
-                            accountManager.notifySuccess(account, model);
-                            return;
-                        } catch (streamError) {
-                            // Only retry on EmptyResponseError
-                            if (!isEmptyResponseError(streamError)) {
-                                throw streamError;
+                            // Check for 503/529 MODEL_CAPACITY_EXHAUSTED - use progressive backoff like 429 capacity
+                            // 529 = Site Overloaded (same treatment as 503)
+                            if ((response.status === 503 || response.status === 529) && isModelCapacityExhausted(errorText)) {
+                                if (capacityRetryCount < MAX_CAPACITY_RETRIES) {
+                                    // Progressive capacity backoff tiers (same as 429 capacity handling)
+                                    const tierIndex = Math.min(capacityRetryCount, CAPACITY_BACKOFF_TIERS_MS.length - 1);
+                                    const waitMs = CAPACITY_BACKOFF_TIERS_MS[tierIndex];
+                                    capacityRetryCount++;
+                                    accountManager.incrementConsecutiveFailures(account.email);
+                                    logger.info(`[CloudCode] ${response.status} Model capacity exhausted, retry ${capacityRetryCount}/${MAX_CAPACITY_RETRIES} after ${formatDuration(waitMs)}...`);
+                                    await sleep(waitMs);
+                                    // Don't increment endpointIndex - retry same endpoint
+                                    continue;
+                                }
+                                // Max capacity retries exceeded - switch account
+                                logger.warn(`[CloudCode] Max capacity retries (${MAX_CAPACITY_RETRIES}) exceeded on ${response.status}, switching account`);
+                                accountManager.markRateLimited(account.email, BACKOFF_BY_ERROR_TYPE.MODEL_CAPACITY_EXHAUSTED, model);
+                                throw new Error(`CAPACITY_EXHAUSTED: ${errorText}`);
                             }
 
-                            // Check if we have retries left
-                            if (emptyRetries >= MAX_EMPTY_RESPONSE_RETRIES) {
-                                logger.error(`[CloudCode] Empty response after ${MAX_EMPTY_RESPONSE_RETRIES} retries`);
-                                yield* emitEmptyResponseFallback(anthropicRequest.model);
+                            // 400 errors are client errors - fail immediately, don't retry or switch accounts
+                            // Examples: token limit exceeded, invalid schema, malformed request
+                            if (response.status === 400) {
+                                logger.error(`[CloudCode] Invalid request (400): ${errorText.substring(0, 200)}`);
+                                throw new Error(`invalid_request_error: ${errorText}`);
+                            }
+
+                            // 403 with VALIDATION_REQUIRED or PERMISSION_DENIED is an account-level error
+                            // The account needs validation (captcha, terms, etc.) - trying different endpoints won't help
+                            // Mark account as invalid (requires user intervention) and rotate (fixes #248)
+                            if (response.status === 403 && isValidationRequired(errorText)) {
+                                // Human Pause: 5-10s before giving up
+                                await sleep(5000 + Math.random() * 5000);
+                                const verifyUrl = extractVerificationUrl(errorText);
+                                logger.warn(`[CloudCode] 403 VALIDATION_REQUIRED/PERMISSION_DENIED for ${account.email}, marking invalid and rotating account...`);
+                                accountManager.markInvalid(account.email, 'Account requires verification', verifyUrl);
+                                throw new AccountForbiddenError(errorText, account.email);
+                            }
+
+                            lastError = new Error(`API error ${response.status}: ${errorText}`);
+
+                            // Try next endpoint for 403/404/5xx errors (matches opencode-antigravity-auth behavior)
+                            if (response.status === 403 || response.status === 404) {
+                                logger.warn(`[CloudCode] ${response.status} at ${endpoint}..`);
+                            } else if (response.status >= 500) {
+                                logger.warn(`[CloudCode] ${response.status} stream error, waiting 1s before retry...`);
+                                await sleep(1000);
+                            }
+
+                            endpointIndex++;
+                            continue;
+                        }
+
+                        // Stream the response with retry logic for empty responses
+                        let currentResponse = response;
+
+                        for (let emptyRetries = 0; emptyRetries <= MAX_EMPTY_RESPONSE_RETRIES; emptyRetries++) {
+                            try {
+                                yield* streamSSEResponse(currentResponse, anthropicRequest.model);
+                                logger.debug('[CloudCode] Stream completed');
+                                // Clear rate limit state on success
+                                clearRateLimitState(account.email, model);
+                                accountManager.notifySuccess(account, model);
                                 return;
-                            }
-
-                            // Exponential backoff: 500ms, 1000ms, 2000ms
-                            const backoffMs = 500 * Math.pow(2, emptyRetries);
-                            logger.warn(`[CloudCode] Empty response, retry ${emptyRetries + 1}/${MAX_EMPTY_RESPONSE_RETRIES} after ${backoffMs}ms...`);
-                            await sleep(backoffMs);
-
-                            // Refetch the response
-                            currentResponse = await throttledFetch(url, {
-                                method: 'POST',
-                                headers: buildHeaders(token, model, 'text/event-stream', account.fingerprint),
-                                body: JSON.stringify(payload)
-                            });
-
-                            // Handle specific error codes on retry
-                            if (!currentResponse.ok) {
-                                const retryErrorText = await currentResponse.text();
-
-                                // Rate limit error - mark account and throw to trigger account switch
-                                if (currentResponse.status === 429) {
-                                    const resetMs = parseResetTime(currentResponse, retryErrorText);
-                                    accountManager.markRateLimited(account.email, resetMs, model);
-                                    throw new Error(`429 RESOURCE_EXHAUSTED during retry: ${retryErrorText}`);
+                            } catch (streamError) {
+                                // Only retry on EmptyResponseError
+                                if (!isEmptyResponseError(streamError)) {
+                                    throw streamError;
                                 }
 
-                                // Auth error - check for permanent failure
-                                if (currentResponse.status === 401) {
-                                    if (isPermanentAuthFailure(retryErrorText)) {
-                                        logger.error(`[CloudCode] Permanent auth failure during retry for ${account.email}`);
-                                        accountManager.markInvalid(account.email, 'Token revoked - re-authentication required');
-                                        throw new Error(`AUTH_INVALID_PERMANENT: ${retryErrorText}`);
+                                // Check if we have retries left
+                                if (emptyRetries >= MAX_EMPTY_RESPONSE_RETRIES) {
+                                    logger.error(`[CloudCode] Empty response after ${MAX_EMPTY_RESPONSE_RETRIES} retries`);
+                                    yield* emitEmptyResponseFallback(anthropicRequest.model);
+                                    return;
+                                }
+
+                                // Exponential backoff: 500ms, 1000ms, 2000ms
+                                const backoffMs = 500 * Math.pow(2, emptyRetries);
+                                logger.warn(`[CloudCode] Empty response, retry ${emptyRetries + 1}/${MAX_EMPTY_RESPONSE_RETRIES} after ${backoffMs}ms...`);
+                                await sleep(backoffMs);
+
+                                // Refetch the response
+                                currentResponse = await throttledFetch(url, {
+                                    method: 'POST',
+                                    headers: buildHeaders(token, model, 'text/event-stream', account.fingerprint),
+                                    body: JSON.stringify(payload)
+                                });
+
+                                // Handle specific error codes on retry
+                                if (!currentResponse.ok) {
+                                    const retryErrorText = await currentResponse.text();
+
+                                    // Rate limit error - mark account and throw to trigger account switch
+                                    if (currentResponse.status === 429) {
+                                        const resetMs = parseResetTime(currentResponse, retryErrorText);
+                                        accountManager.markRateLimited(account.email, resetMs, model);
+                                        throw new Error(`429 RESOURCE_EXHAUSTED during retry: ${retryErrorText}`);
                                     }
-                                    accountManager.clearTokenCache(account.email);
-                                    accountManager.clearProjectCache(account.email);
-                                    throw new Error(`401 AUTH_INVALID during retry: ${retryErrorText}`);
-                                }
 
-                                // For 5xx errors, continue retrying
-                                if (currentResponse.status >= 500) {
-                                    logger.warn(`[CloudCode] Retry got ${currentResponse.status}, will retry...`);
-                                    await sleep(1000);
-                                    currentResponse = await throttledFetch(url, {
-                                        method: 'POST',
-                                        headers: buildHeaders(token, model, 'text/event-stream', account.fingerprint),
-                                        body: JSON.stringify(payload)
-                                    });
-                                    if (currentResponse.ok) {
-                                        continue;
+                                    // Auth error - check for permanent failure
+                                    if (currentResponse.status === 401) {
+                                        if (isPermanentAuthFailure(retryErrorText)) {
+                                            logger.error(`[CloudCode] Permanent auth failure during retry for ${account.email}`);
+                                            accountManager.markInvalid(account.email, 'Token revoked - re-authentication required');
+                                            throw new Error(`AUTH_INVALID_PERMANENT: ${retryErrorText}`);
+                                        }
+                                        accountManager.clearTokenCache(account.email);
+                                        accountManager.clearProjectCache(account.email);
+                                        throw new Error(`401 AUTH_INVALID during retry: ${retryErrorText}`);
                                     }
-                                }
 
-                                throw new Error(`Empty response retry failed: ${currentResponse.status} - ${retryErrorText}`);
+                                    // For 5xx errors, continue retrying
+                                    if (currentResponse.status >= 500) {
+                                        logger.warn(`[CloudCode] Retry got ${currentResponse.status}, will retry...`);
+                                        await sleep(1000);
+                                        currentResponse = await throttledFetch(url, {
+                                            method: 'POST',
+                                            headers: buildHeaders(token, model, 'text/event-stream', account.fingerprint),
+                                            body: JSON.stringify(payload)
+                                        });
+                                        if (currentResponse.ok) {
+                                            continue;
+                                        }
+                                    }
+
+                                    throw new Error(`Empty response retry failed: ${currentResponse.status} - ${retryErrorText}`);
+                                }
                             }
                         }
-                    }
 
-                } catch (endpointError) {
-                    if (isRateLimitError(endpointError)) {
-                        throw endpointError; // Re-throw to trigger account switch
+                    } catch (endpointError) {
+                        if (isRateLimitError(endpointError)) {
+                            throw endpointError; // Re-throw to trigger account switch
+                        }
+                        if (isEmptyResponseError(endpointError)) {
+                            throw endpointError;
+                        }
+                        // 403 account-level errors - re-throw to trigger account rotation
+                        if (isAccountForbiddenError(endpointError)) {
+                            throw endpointError;
+                        }
+                        // 400 errors are client errors - re-throw immediately, don't retry
+                        if (endpointError.message?.includes('400')) {
+                            throw endpointError;
+                        }
+                        logger.warn(`[CloudCode] Stream error at ${endpoint}:`, endpointError.message);
+                        lastError = endpointError;
+                        endpointIndex++;
                     }
-                    if (isEmptyResponseError(endpointError)) {
-                        throw endpointError;
-                    }
-                    // 403 account-level errors - re-throw to trigger account rotation
-                    if (isAccountForbiddenError(endpointError)) {
-                        throw endpointError;
-                    }
-                    // 400 errors are client errors - re-throw immediately, don't retry
-                    if (endpointError.message?.includes('400')) {
-                        throw endpointError;
-                    }
-                    logger.warn(`[CloudCode] Stream error at ${endpoint}:`, endpointError.message);
-                    lastError = endpointError;
-                    endpointIndex++;
                 }
-            }
 
-            // If all endpoints failed for this account
-            if (lastError) {
-                if (lastError.is429) {
-                    logger.warn(`[CloudCode] All endpoints rate-limited for ${account.email}`);
-                    accountManager.markRateLimited(account.email, lastError.resetMs, model);
-                    throw new Error(`Rate limited: ${lastError.errorText}`);
+                // If all endpoints failed for this account
+                if (lastError) {
+                    if (lastError.is429) {
+                        logger.warn(`[CloudCode] All endpoints rate-limited for ${account.email}`);
+                        accountManager.markRateLimited(account.email, lastError.resetMs, model);
+                        throw new Error(`Rate limited: ${lastError.errorText}`);
+                    }
+                    throw lastError;
                 }
-                throw lastError;
+            } finally {
+                // Release lock when stream setup is done (either success or failure)
+                // Note: Ideally we should hold the lock until the stream finishes,
+                // but since we are yielding, we can't easily hold it across yields.
+                // However, the "Human Speed Limit" usually applies to initiation frequency.
+                // If we want to hold it for the duration, we'd need to wrap the generator.
+                // Given the constraints, ensuring we wait BEFORE starting is the most important part.
+                trafficShaper.release(account.email);
             }
 
         } catch (error) {
