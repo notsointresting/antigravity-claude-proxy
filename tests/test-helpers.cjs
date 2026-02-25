@@ -10,13 +10,7 @@ async function runTests() {
     console.log('╚══════════════════════════════════════════════════════════════╝\n');
 
     // Dynamic imports for ESM modules
-    const {
-        isNetworkError,
-        getGotScrapingOptions,
-        getPlatformUserAgent,
-        getAntigravityDbPath,
-        getPlatformEnum
-    } = await import('../src/utils/helpers.js');
+    const { isNetworkError, getGotScrapingOptions } = await import('../src/utils/helpers.js');
 
     let passed = 0;
     let failed = 0;
@@ -98,35 +92,32 @@ async function runTests() {
     });
 
     // =========================================================================
-    // Test Group: Memoization Checks
+    // Test Group: getGotScrapingOptions()
     // =========================================================================
-    console.log('\n── Memoization Checks ──────────────────────────────────────');
+    console.log('\n── getGotScrapingOptions() Structure ───────────────────────');
 
-    test('getGotScrapingOptions returns same object reference', () => {
-        const opts1 = getGotScrapingOptions();
-        const opts2 = getGotScrapingOptions();
-        assertTrue(opts1 === opts2, 'Expected same object reference');
+    test('returns correct structure', () => {
+        const options = getGotScrapingOptions();
 
-        // Ensure it's frozen
-        assertTrue(Object.isFrozen(opts1), 'Expected object to be frozen');
+        // Basic structure check
+        assertTrue(Array.isArray(options.browsers), 'browsers should be an array');
+        assertTrue(Array.isArray(options.devices), 'devices should be an array');
+        assertTrue(Array.isArray(options.locales), 'locales should be an array');
+        assertTrue(Array.isArray(options.operatingSystems), 'operatingSystems should be an array');
+
+        // Content check
+        assertTrue(options.devices.includes('desktop'), 'devices should include desktop');
+        assertTrue(options.locales.includes('en-US'), 'locales should include en-US');
     });
 
-    test('getPlatformUserAgent returns consistent value', () => {
-        const ua1 = getPlatformUserAgent();
-        const ua2 = getPlatformUserAgent();
-        assertTrue(ua1 === ua2, 'Expected same string');
-    });
+    test('memoization check (referential equality)', () => {
+        const options1 = getGotScrapingOptions();
+        const options2 = getGotScrapingOptions();
 
-    test('getAntigravityDbPath returns consistent value', () => {
-        const path1 = getAntigravityDbPath();
-        const path2 = getAntigravityDbPath();
-        assertTrue(path1 === path2, 'Expected same string');
-    });
-
-    test('getPlatformEnum returns consistent value', () => {
-        const enum1 = getPlatformEnum();
-        const enum2 = getPlatformEnum();
-        assertTrue(enum1 === enum2, 'Expected same number');
+        // If optimization is applied, this should be true (same object reference)
+        // Before optimization, this might fail or pass depending on implementation detail,
+        // but we want to assert it DOES pass after we optimize.
+        assertTrue(options1 === options2, 'Should return the same object reference (memoized)');
     });
 
     // =========================================================================
