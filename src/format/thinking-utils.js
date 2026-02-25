@@ -48,6 +48,17 @@ export function cleanCacheControl(messages) {
         // Handle array content
         if (!Array.isArray(message.content)) return message;
 
+        // Check if this specific message needs cleaning to avoid cloning clean messages
+        const messageNeedsCleaning = message.content.some(block =>
+            block &&
+            typeof block === 'object' &&
+            block.cache_control !== undefined
+        );
+
+        if (!messageNeedsCleaning) {
+            return message;
+        }
+
         const cleanedContent = message.content.map(block => {
             if (!block || typeof block !== 'object') return block;
 
