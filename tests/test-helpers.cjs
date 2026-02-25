@@ -10,7 +10,13 @@ async function runTests() {
     console.log('╚══════════════════════════════════════════════════════════════╝\n');
 
     // Dynamic imports for ESM modules
-    const { isNetworkError } = await import('../src/utils/helpers.js');
+    const {
+        isNetworkError,
+        getGotScrapingOptions,
+        getPlatformUserAgent,
+        getAntigravityDbPath,
+        getPlatformEnum
+    } = await import('../src/utils/helpers.js');
 
     let passed = 0;
     let failed = 0;
@@ -89,6 +95,47 @@ async function runTests() {
         } catch (e) {
             throw new Error('Failed to handle empty message: ' + e.message);
         }
+    });
+
+    // =========================================================================
+    // Test Group: Memoization
+    // =========================================================================
+    console.log('\n── Memoization & Output Consistency ────────────────────────');
+
+    test('getGotScrapingOptions returns object and maintains reference', () => {
+        const opt1 = getGotScrapingOptions();
+        const opt2 = getGotScrapingOptions();
+
+        assertTrue(typeof opt1 === 'object', 'Should return an object');
+        assertTrue(Array.isArray(opt1.browsers), 'Should have browsers array');
+        assertTrue(opt1 === opt2, 'Should return exact same object reference (memoized)');
+    });
+
+    test('getPlatformUserAgent returns string and maintains value', () => {
+        const ua1 = getPlatformUserAgent();
+        const ua2 = getPlatformUserAgent();
+
+        assertTrue(typeof ua1 === 'string', 'Should return a string');
+        assertTrue(ua1.length > 0, 'Should not be empty');
+        assertTrue(ua1 === ua2, 'Should return exact same string value');
+    });
+
+    test('getAntigravityDbPath returns string and maintains value', () => {
+        const path1 = getAntigravityDbPath();
+        const path2 = getAntigravityDbPath();
+
+        assertTrue(typeof path1 === 'string', 'Should return a string');
+        assertTrue(path1.includes('Antigravity'), 'Should contain project folder name');
+        assertTrue(path1 === path2, 'Should return exact same path string');
+    });
+
+    test('getPlatformEnum returns number and maintains value', () => {
+        const enum1 = getPlatformEnum();
+        const enum2 = getPlatformEnum();
+
+        assertTrue(typeof enum1 === 'number', 'Should return a number');
+        assertTrue(enum1 >= 0 && enum1 <= 3, 'Should be a valid platform enum (0-3)');
+        assertTrue(enum1 === enum2, 'Should return exact same number');
     });
 
     // =========================================================================
