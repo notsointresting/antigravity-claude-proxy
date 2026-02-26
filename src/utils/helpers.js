@@ -187,9 +187,6 @@ export function generateJitter(maxJitterMs) {
     return z * stdev;
 }
 
-// Memoize the got-scraping options to prevent object allocation on every request
-let cachedGotScrapingOptions = null;
-
 /**
  * Get got-scraping options for current platform
  * Ensures TLS fingerprint matches the OS
@@ -229,21 +226,21 @@ export function getGotScrapingOptions() {
  */
 let cachedAntigravityDbPath = null;
 export function getAntigravityDbPath() {
-    if (cachedDbPath) return cachedDbPath;
+    if (cachedAntigravityDbPath) return cachedAntigravityDbPath;
 
     const home = homedir();
     switch (platform()) {
         case 'darwin':
-            cachedDbPath = path.join(home, 'Library/Application Support/Antigravity/User/globalStorage/state.vscdb');
+            cachedAntigravityDbPath = path.join(home, 'Library/Application Support/Antigravity/User/globalStorage/state.vscdb');
             break;
         case 'win32':
-            cachedDbPath = path.join(home, 'AppData/Roaming/Antigravity/User/globalStorage/state.vscdb');
+            cachedAntigravityDbPath = path.join(home, 'AppData/Roaming/Antigravity/User/globalStorage/state.vscdb');
             break;
         default: // linux, freebsd, etc.
-            cachedDbPath = path.join(home, '.config/Antigravity/User/globalStorage/state.vscdb');
+            cachedAntigravityDbPath = path.join(home, '.config/Antigravity/User/globalStorage/state.vscdb');
             break;
     }
-    return cachedDbPath;
+    return cachedAntigravityDbPath;
 }
 
 /**
@@ -254,7 +251,7 @@ export function getAntigravityDbPath() {
  */
 let cachedPlatformUserAgent = null;
 export function getPlatformUserAgent() {
-    if (cachedUserAgent) return cachedUserAgent;
+    if (cachedPlatformUserAgent) return cachedPlatformUserAgent;
 
     const os = platform();
     // Default to a recent stable VS Code version
@@ -263,13 +260,13 @@ export function getPlatformUserAgent() {
     const electronVer = '27.2.3';
 
     if (os === 'darwin') {
-        cachedUserAgent = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
+        cachedPlatformUserAgent = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
     } else if (os === 'win32') {
-        cachedUserAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
+        cachedPlatformUserAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
     } else {
-        cachedUserAgent = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
+        cachedPlatformUserAgent = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/${vscodeVer} Chrome/${chromeVer} Electron/${electronVer} Safari/537.36`;
     }
-    return cachedUserAgent;
+    return cachedPlatformUserAgent;
 }
 
 /**

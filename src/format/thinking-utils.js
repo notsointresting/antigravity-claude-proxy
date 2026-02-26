@@ -216,9 +216,11 @@ function sanitizeToolUseBlock(block) {
 
 /**
  * Filter content array, keeping only thinking blocks with valid signatures.
+ * OPTIMIZATION: Returns original array if no changes were made.
  */
 function filterContentArray(contentArray) {
     const filtered = [];
+    let hasChanges = false;
 
     for (const item of contentArray) {
         if (!item || typeof item !== 'object') {
@@ -234,32 +236,46 @@ function filterContentArray(contentArray) {
         // Keep items with valid signatures
         if (hasValidSignature(item)) {
             filtered.push(sanitizeThinkingPart(item));
+            // Assuming sanitization or processing thinking part counts as a change
+            // relative to the original raw object
+            hasChanges = true;
             continue;
         }
 
         // Drop unsigned thinking blocks
         logger.debug('[ThinkingUtils] Dropping unsigned thinking block');
+        hasChanges = true;
     }
 
-    return filtered;
+    return hasChanges ? filtered : contentArray;
 }
 
 /**
  * Filter unsigned thinking blocks from contents (Gemini format)
+ * OPTIMIZATION: Returns original objects/arrays if no changes were made.
  *
  * @param {Array<{role: string, parts: Array}>} contents - Array of content objects in Gemini format
  * @returns {Array<{role: string, parts: Array}>} Filtered contents with unsigned thinking blocks removed
  */
 export function filterUnsignedThinkingBlocks(contents) {
-    return contents.map(content => {
+    let hasGlobalChanges = false;
+
+    const newContents = contents.map(content => {
         if (!content || typeof content !== 'object') return content;
 
         if (Array.isArray(content.parts)) {
-            return { ...content, parts: filterContentArray(content.parts) };
+            const newParts = filterContentArray(content.parts);
+            // Reference check: filterContentArray returns original array if unchanged
+            if (newParts !== content.parts) {
+                hasGlobalChanges = true;
+                return { ...content, parts: newParts };
+            }
         }
 
         return content;
     });
+
+    return hasGlobalChanges ? newContents : contents;
 }
 
 /**
@@ -306,6 +322,7 @@ export function removeTrailingThinkingBlocks(content) {
  * Filter thinking blocks: keep only those with valid signatures.
  * Blocks without signatures are dropped (API requires signatures).
  * Also sanitizes blocks to remove extra fields like cache_control.
+ * OPTIMIZATION: Returns original array if no changes were made.
  *
  * @param {Array<Object>} content - Array of content blocks
  * @returns {Array<Object>} Filtered content with only valid signed thinking blocks
@@ -315,6 +332,7 @@ export function restoreThinkingSignatures(content) {
 
     const originalLength = content.length;
     const filtered = [];
+    let hasChanges = false;
 
     for (const block of content) {
         if (!block || block.type !== 'thinking') {
@@ -325,15 +343,18 @@ export function restoreThinkingSignatures(content) {
         // Keep blocks with valid signatures (>= MIN_SIGNATURE_LENGTH chars), sanitized
         if (block.signature && block.signature.length >= MIN_SIGNATURE_LENGTH) {
             filtered.push(sanitizeAnthropicThinkingBlock(block));
+            hasChanges = true; // Modified/Sanitized
+        } else {
+            // Unsigned thinking blocks are dropped
+            hasChanges = true; // Dropped
         }
-        // Unsigned thinking blocks are dropped
     }
 
     if (filtered.length < originalLength) {
         logger.debug(`[ThinkingUtils] Dropped ${originalLength - filtered.length} unsigned thinking block(s)`);
     }
 
-    return filtered;
+    return hasChanges ? filtered : content;
 }
 
 /**
