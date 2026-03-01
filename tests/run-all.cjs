@@ -28,7 +28,8 @@ const tests = [
     { name: 'Utility Helpers (isNetworkError)', file: 'test-helpers.cjs' },
     { name: 'Response Converter', file: 'test-response-converter.cjs' },
     { name: 'Telemetry Service', file: 'test-telemetry.js' },
-    { name: 'Traffic Shaper', file: 'test-traffic-shaper.js' }
+    { name: 'Traffic Shaper', file: 'test-traffic-shaper.js' },
+    { name: 'Endpoint Selector', file: 'test-endpoint-selector.cjs' }
 ];
 
 async function runTest(test) {
