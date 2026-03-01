@@ -38,8 +38,13 @@ function enforceCacheLimit(cache) {
 export function cacheSignature(toolUseId, signature) {
     if (!toolUseId || !signature) return;
 
-    // Prevent unbounded growth
-    enforceCacheLimit(signatureCache);
+    // Use LRU policy: delete if exists so it moves to end on re-insertion
+    if (signatureCache.has(toolUseId)) {
+        signatureCache.delete(toolUseId);
+    } else {
+        // Prevent unbounded growth only for new items
+        enforceCacheLimit(signatureCache);
+    }
 
     signatureCache.set(toolUseId, {
         signature,
@@ -74,8 +79,13 @@ export function getCachedSignature(toolUseId) {
 export function cacheThinkingSignature(signature, modelFamily) {
     if (!signature || signature.length < MIN_SIGNATURE_LENGTH) return;
 
-    // Prevent unbounded growth
-    enforceCacheLimit(thinkingSignatureCache);
+    // Use LRU policy: delete if exists so it moves to end on re-insertion
+    if (thinkingSignatureCache.has(signature)) {
+        thinkingSignatureCache.delete(signature);
+    } else {
+        // Prevent unbounded growth only for new items
+        enforceCacheLimit(thinkingSignatureCache);
+    }
 
     thinkingSignatureCache.set(signature, {
         modelFamily,
