@@ -133,17 +133,20 @@ function deepMerge(target, source) {
     const output = { ...target };
 
     if (isObject(target) && isObject(source)) {
-        Object.keys(source).forEach(key => {
-            if (isObject(source[key])) {
-                if (!(key in target)) {
-                    Object.assign(output, { [key]: source[key] });
+        for (const key in source) {
+            if (source.hasOwnProperty(key)) {
+                if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+                if (isObject(source[key])) {
+                    if (!(key in target)) {
+                        output[key] = source[key];
+                    } else {
+                        output[key] = deepMerge(target[key], source[key]);
+                    }
                 } else {
-                    output[key] = deepMerge(target[key], source[key]);
+                    output[key] = source[key];
                 }
-            } else {
-                Object.assign(output, { [key]: source[key] });
             }
-        });
+        }
     }
 
     return output;
