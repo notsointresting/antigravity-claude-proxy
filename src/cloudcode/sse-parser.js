@@ -51,10 +51,15 @@ export async function parseThinkingSSEResponse(response, originalModel) {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
 
-        for (const line of lines) {
+        let newlineIdx;
+        let lastIdx = 0;
+        // Find each newline to extract complete lines from the buffer efficiently
+        // This avoids creating an array with split() which causes memory spikes
+        while ((newlineIdx = buffer.indexOf('\n', lastIdx)) !== -1) {
+            const line = buffer.slice(lastIdx, newlineIdx);
+            lastIdx = newlineIdx + 1;
+
             if (!line.startsWith('data:')) continue;
             const jsonText = line.slice(5).trim();
             if (!jsonText) continue;
@@ -100,6 +105,9 @@ export async function parseThinkingSSEResponse(response, originalModel) {
                 logger.debug('[CloudCode] SSE parse warning:', e.message, 'Raw:', jsonText.slice(0, 100));
             }
         }
+
+        // Keep any remaining incomplete line in the buffer
+        buffer = buffer.slice(lastIdx);
     }
 
     flushThinking();

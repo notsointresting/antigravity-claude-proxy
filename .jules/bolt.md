@@ -1,0 +1,3 @@
+## 2024-05-18 - [Optimizing SSE parsing in Node.js]
+**Learning:** For Server-Sent Events (SSE) where data can be received in chunks over time, doing `buffer.split('\n')` on large payloads causes excessive string allocations and triggers garbage collection pauses, which tanks streaming performance and memory usage.
+**Action:** Use an `indexOf('\n', lastIdx)` loop instead to identify and extract lines directly using `buffer.slice(lastIdx, newlineIdx)`, avoiding the creation of an intermediate array of all string fragments. Remember to slice the remaining unprocessed portion back into the buffer at the end of the loop: `buffer = buffer.slice(lastIdx)`.
