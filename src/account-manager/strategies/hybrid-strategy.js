@@ -150,81 +150,71 @@ export class HybridStrategy extends BaseStrategy {
      *   fallbackLevel: 'normal' | 'quota' | 'emergency' | 'lastResort'
      */
     #getCandidates(accounts, modelId) {
-        const candidates = accounts
-            .map((account, index) => ({ account, index }))
-            .filter(({ account }) => {
-                // Basic usability check
-                if (!this.isAccountUsable(account, modelId)) {
-                    return false;
-                }
+        // ⚡ Bolt Optimization: Replaced multiple O(N) chained map().filter() arrays
+        // with a single O(N) loop that categorizes candidates efficiently.
+        // Impact: Reduces object allocations and garbage collection overhead on the hot path.
+        const candidates = [];
+        const fallback = [];
+        const emergency = [];
+        const lastResort = [];
 
-                // Health score check
-                if (!this.#healthTracker.isUsable(account.email)) {
-                    return false;
-                }
+        for (let index = 0; index < accounts.length; index++) {
+            const account = accounts[index];
+            const item = { account, index };
 
-                // Token availability check
-                if (!this.#tokenBucketTracker.hasTokens(account.email)) {
-                    return false;
-                }
+            // Only check if account is usable (not rate-limited, not disabled)
+            if (!this.isAccountUsable(account, modelId)) {
+                continue; // Cannot be used in any level
+            }
 
-                // Quota availability check (exclude critically low quota)
-                // Threshold priority: per-model > per-account > global > default
-                const effectiveThreshold = account.modelQuotaThresholds?.[modelId]
-                    ?? account.quotaThreshold
-                    ?? (config.globalQuotaThreshold || undefined);
-                if (this.#quotaTracker.isQuotaCritical(account, modelId, effectiveThreshold)) {
-                    logger.debug(`[HybridStrategy] Excluding ${account.email}: quota critically low for ${modelId} (threshold: ${effectiveThreshold ?? 'default'})`);
-                    return false;
-                }
+            // At this point, account passes basic usability. Add to lastResort.
+            lastResort.push(item);
 
-                return true;
-            });
+            // Token availability check
+            if (!this.#tokenBucketTracker.hasTokens(account.email)) {
+                continue; // Cannot be used in normal, fallback, or emergency
+            }
+
+            // At this point, account passes usability and tokens. Add to emergency.
+            emergency.push(item);
+
+            // Health score check
+            if (!this.#healthTracker.isUsable(account.email)) {
+                continue; // Cannot be used in normal or fallback
+            }
+
+            // At this point, account passes usability, tokens, and health. Add to fallback.
+            fallback.push(item);
+
+            // Quota availability check (exclude critically low quota)
+            // Threshold priority: per-model > per-account > global > default
+            const effectiveThreshold = account.modelQuotaThresholds?.[modelId]
+                ?? account.quotaThreshold
+                ?? (config.globalQuotaThreshold || undefined);
+
+            if (this.#quotaTracker.isQuotaCritical(account, modelId, effectiveThreshold)) {
+                logger.debug(`[HybridStrategy] Excluding ${account.email}: quota critically low for ${modelId} (threshold: ${effectiveThreshold ?? 'default'})`);
+                continue; // Cannot be used in normal
+            }
+
+            // At this point, account passes all checks
+            candidates.push(item);
+        }
 
         if (candidates.length > 0) {
             return { candidates, fallbackLevel: 'normal' };
         }
 
-        // If no candidates after quota filter, fall back to all usable accounts
-        // (better to use critical quota than fail entirely)
-        const fallback = accounts
-            .map((account, index) => ({ account, index }))
-            .filter(({ account }) => {
-                if (!this.isAccountUsable(account, modelId)) return false;
-                if (!this.#healthTracker.isUsable(account.email)) return false;
-                if (!this.#tokenBucketTracker.hasTokens(account.email)) return false;
-                return true;
-            });
         if (fallback.length > 0) {
             logger.warn('[HybridStrategy] All accounts have critical quota, using fallback');
             return { candidates: fallback, fallbackLevel: 'quota' };
         }
 
-        // Emergency fallback: bypass health check when ALL accounts are unhealthy
-        // This prevents "Max retries exceeded" when health scores are too low
-        const emergency = accounts
-            .map((account, index) => ({ account, index }))
-            .filter(({ account }) => {
-                if (!this.isAccountUsable(account, modelId)) return false;
-                if (!this.#tokenBucketTracker.hasTokens(account.email)) return false;
-                // Skip health check - use "least bad" account
-                return true;
-            });
         if (emergency.length > 0) {
             logger.warn('[HybridStrategy] EMERGENCY: All accounts unhealthy, using least bad account');
             return { candidates: emergency, fallbackLevel: 'emergency' };
         }
 
-        // Last resort: bypass BOTH health AND token bucket checks
-        // Only check basic usability (not rate-limited, not disabled)
-        const lastResort = accounts
-            .map((account, index) => ({ account, index }))
-            .filter(({ account }) => {
-                // Only check if account is usable (not rate-limited, not disabled)
-                if (!this.isAccountUsable(account, modelId)) return false;
-                // Skip health and token bucket checks entirely
-                return true;
-            });
         if (lastResort.length > 0) {
             logger.warn('[HybridStrategy] LAST RESORT: All accounts exhausted, using any usable account');
             return { candidates: lastResort, fallbackLevel: 'lastResort' };
