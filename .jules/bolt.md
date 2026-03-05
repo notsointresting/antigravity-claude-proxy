@@ -1,0 +1,3 @@
+## 2026-03-05 - [HybridStrategy Candidate Selection Optimization]
+**Learning:** In hot paths like account candidate selection (`HybridStrategy.#getCandidates`), chained `Array.map().filter()` calls can cause unnecessary object allocation and garbage collection overhead, particularly when evaluating multiple fallback conditions that require multiple passes over the same data.
+**Action:** Replace multiple chained `map().filter()` passes with a single `for` loop that cascades the conditional checks. This allows allocating the candidate object (`{ account, index }`) exactly once per usable account and pushing references to the appropriate candidate arrays (`normal`, `fallback`, `emergency`, `lastResort`) in a single pass.
