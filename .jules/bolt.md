@@ -1,0 +1,3 @@
+## 2024-03-07 - Avoid Array.map().filter() chaining on hot paths
+**Learning:** Found several instances of `.map(...).filter(...)` or `.filter(...).map(...)` chaining in `src/account-manager/strategies/hybrid-strategy.js` and `src/account-manager/strategies/base-strategy.js`. This creates intermediate arrays which increases garbage collection pressure, especially on hot paths like account selection which happens on every request.
+**Action:** Replace `.map().filter()` chains with a single `for` loop or `reduce` to avoid creating intermediate arrays, minimizing allocations and GC overhead on the hot path.
