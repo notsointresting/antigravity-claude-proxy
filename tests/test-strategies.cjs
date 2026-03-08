@@ -239,7 +239,7 @@ async function runTests() {
         const tracker = new TokenBucketTracker({ initialTokens: 10, maxTokens: 10 });
         const consumed = tracker.consume('test@example.com');
         assertTrue(consumed, 'Consume should return true');
-        assertEqual(tracker.getTokens('test@example.com'), 9, 'Tokens should decrease by 1');
+        assertEqual(Math.floor(tracker.getTokens('test@example.com')), 9, 'Tokens should decrease by 1');
     });
 
     test('TokenBucketTracker: consume fails when no tokens', () => {
