@@ -1,0 +1,3 @@
+## 2026-03-10 - HybridStrategy Candidate Selection Optimization
+**Learning:** Found an opportunity to improve candidate filtering loop performance in `src/account-manager/strategies/hybrid-strategy.js` by avoiding multiple intermediate object creations (`{ account, index }`) via `Array.map().filter()`. Converting these functional chains to direct `for` loops avoids allocating thousands of objects per iteration and decreases GC pressure significantly in the "hot path".
+**Action:** When working on arrays over tight loops on the hot path, replacing `.map().filter()` with a direct loop and `.push()` reduces GC overhead and improves execution time.
