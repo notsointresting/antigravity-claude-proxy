@@ -76,6 +76,19 @@ export function clampGeminiThinkingBudget(modelName, budget) {
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    // Fast path: avoid allocations if cache_control is not present anywhere
+    const hasAnyCacheControl = messages.some(msg =>
+        msg &&
+        typeof msg === 'object' &&
+        Array.isArray(msg.content) &&
+        msg.content.some(block => block && typeof block === 'object' && block.cache_control !== undefined)
+    );
+
+    // If no cache_control found (common case), return original array (identity preservation)
+    if (!hasAnyCacheControl) {
+        return messages;
+    }
+
     let removedCount = 0;
 
     const cleaned = messages.map(message => {
@@ -86,6 +99,14 @@ export function cleanCacheControl(messages) {
 
         // Handle array content
         if (!Array.isArray(message.content)) return message;
+
+        // Check if this specific message needs modification
+        const hasCacheControl = message.content.some(block =>
+            block && typeof block === 'object' && block.cache_control !== undefined
+        );
+
+        // Preserve identity of untouched messages
+        if (!hasCacheControl) return message;
 
         const cleanedContent = message.content.map(block => {
             if (!block || typeof block !== 'object') return block;
