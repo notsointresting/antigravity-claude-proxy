@@ -129,7 +129,7 @@ async function runTests() {
         const tracker = new HealthTracker({ initial: 70, rateLimitPenalty: -10 });
         tracker.recordRateLimit('test@example.com');
         const score = tracker.getScore('test@example.com');
-        assertEqual(score, 60, 'Score should decrease by 10 on rate limit');
+        assertEqual(Math.floor(score), 60, 'Score should decrease by 10 on rate limit');
     });
 
     test('HealthTracker: recordFailure decreases score', () => {

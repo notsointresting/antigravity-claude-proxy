@@ -1,0 +1,3 @@
+## 2026-03-16 - [Hybrid Strategy `getCandidates` Optimization]
+**Learning:** Chaining `.map()` and `.filter()` across multiple fallback levels in `HybridStrategy.#getCandidates` caused excessive intermediate array allocations and GC overhead on a hot path, slowing down account selection.
+**Action:** Replaced chained methods with a single-pass `for` loop that evaluates all conditions and categorizes accounts directly into pre-allocated arrays (`candidates`, `fallback`, `emergency`, `lastResort`). Also moved constant evaluations (like `config.globalQuotaThreshold`) outside the loop to avoid redundant checks.
