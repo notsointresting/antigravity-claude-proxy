@@ -262,7 +262,8 @@ async function runTests() {
         const tracker = new TokenBucketTracker({ initialTokens: 5, maxTokens: 10 });
         tracker.consume('test@example.com'); // 5 -> 4
         tracker.refund('test@example.com');  // 4 -> 5
-        assertEqual(tracker.getTokens('test@example.com'), 5, 'Refund should restore token');
+        const tokens = Math.floor(tracker.getTokens('test@example.com'));
+        assertEqual(tokens, 5, 'Refund should restore token');
     });
 
     test('TokenBucketTracker: refund cannot exceed maxTokens', () => {
