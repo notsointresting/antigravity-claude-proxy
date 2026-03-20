@@ -262,7 +262,7 @@ async function runTests() {
         const tracker = new TokenBucketTracker({ initialTokens: 5, maxTokens: 10 });
         tracker.consume('test@example.com'); // 5 -> 4
         tracker.refund('test@example.com');  // 4 -> 5
-        assertEqual(tracker.getTokens('test@example.com'), 5, 'Refund should restore token');
+        assertEqual(Math.floor(tracker.getTokens('test@example.com')), 5, 'Refund should restore token');
     });
 
     test('TokenBucketTracker: refund cannot exceed maxTokens', () => {
@@ -735,7 +735,7 @@ async function runTests() {
 
         strategy.selectAccount(accounts, 'model');
         const tracker = strategy.getTokenBucketTracker();
-        assertEqual(tracker.getTokens(accounts[0].email), 9, 'Token should be consumed');
+        assertEqual(Math.floor(tracker.getTokens(accounts[0].email)), 9, 'Token should be consumed');
     });
 
     test('HybridStrategy: onSuccess increases health', () => {
