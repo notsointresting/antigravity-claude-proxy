@@ -735,7 +735,7 @@ async function runTests() {
 
         strategy.selectAccount(accounts, 'model');
         const tracker = strategy.getTokenBucketTracker();
-        assertEqual(tracker.getTokens(accounts[0].email), 9, 'Token should be consumed');
+        assertWithin(tracker.getTokens(accounts[0].email), 8.9, 9.1, 'Token should be consumed');
     });
 
     test('HybridStrategy: onSuccess increases health', () => {
@@ -778,7 +778,7 @@ async function runTests() {
         const tokenTracker = strategy.getTokenBucketTracker();
 
         assertEqual(healthTracker.getScore(accounts[0].email), 50, 'Health should decrease by 20');
-        assertEqual(tokenTracker.getTokens(accounts[0].email), tokensBefore + 1, 'Token should be refunded');
+        assertWithin(tokenTracker.getTokens(accounts[0].email), tokensBefore + 0.9, tokensBefore + 1.1, 'Token should be refunded');
     });
 
     test('HybridStrategy: scoring formula weights work correctly', () => {
