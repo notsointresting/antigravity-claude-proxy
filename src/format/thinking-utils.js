@@ -76,6 +76,12 @@ export function clampGeminiThinkingBudget(modelName, budget) {
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    const needsCleaning = messages.some(msg =>
+        msg && typeof msg === 'object' && Array.isArray(msg.content) &&
+        msg.content.some(block => block && typeof block === 'object' && (block.cache_control !== undefined || block.type === 'cache_control'))
+    );
+    if (!needsCleaning) return messages;
+
     let removedCount = 0;
 
     const cleaned = messages.map(message => {
@@ -170,6 +176,11 @@ export function hasUnsignedThinkingBlocks(messages) {
 function sanitizeThinkingPart(part) {
     // Gemini-style thought blocks: { thought: true, text, thoughtSignature }
     if (part.thought === true) {
+        let expectedKeys = 1;
+        if (part.text !== undefined) expectedKeys++;
+        if (part.thoughtSignature !== undefined) expectedKeys++;
+        if (Object.keys(part).length === expectedKeys) return part;
+
         const sanitized = { thought: true };
         if (part.text !== undefined) sanitized.text = part.text;
         if (part.thoughtSignature !== undefined) sanitized.thoughtSignature = part.thoughtSignature;
@@ -178,6 +189,11 @@ function sanitizeThinkingPart(part) {
 
     // Anthropic-style thinking blocks: { type: "thinking", thinking, signature }
     if (part.type === 'thinking' || part.thinking !== undefined) {
+        let expectedKeys = 1;
+        if (part.thinking !== undefined) expectedKeys++;
+        if (part.signature !== undefined) expectedKeys++;
+        if (part.type === 'thinking' && Object.keys(part).length === expectedKeys) return part;
+
         const sanitized = { type: 'thinking' };
         if (part.thinking !== undefined) sanitized.thinking = part.thinking;
         if (part.signature !== undefined) sanitized.signature = part.signature;
@@ -195,6 +211,11 @@ function sanitizeAnthropicThinkingBlock(block) {
     if (!block) return block;
 
     if (block.type === 'thinking') {
+        let expectedKeys = 1;
+        if (block.thinking !== undefined) expectedKeys++;
+        if (block.signature !== undefined) expectedKeys++;
+        if (Object.keys(block).length === expectedKeys) return block;
+
         const sanitized = { type: 'thinking' };
         if (block.thinking !== undefined) sanitized.thinking = block.thinking;
         if (block.signature !== undefined) sanitized.signature = block.signature;
@@ -202,6 +223,10 @@ function sanitizeAnthropicThinkingBlock(block) {
     }
 
     if (block.type === 'redacted_thinking') {
+        let expectedKeys = 1;
+        if (block.data !== undefined) expectedKeys++;
+        if (Object.keys(block).length === expectedKeys) return block;
+
         const sanitized = { type: 'redacted_thinking' };
         if (block.data !== undefined) sanitized.data = block.data;
         return sanitized;
@@ -246,7 +271,11 @@ function sanitizeToolUseBlock(block) {
  * Filter content array, keeping only thinking blocks with valid signatures.
  */
 function filterContentArray(contentArray) {
+    const needsFiltering = contentArray.some(isThinkingPart);
+    if (!needsFiltering) return contentArray;
+
     const filtered = [];
+    let changed = false;
 
     for (const item of contentArray) {
         if (!item || typeof item !== 'object') {
@@ -261,15 +290,18 @@ function filterContentArray(contentArray) {
 
         // Keep items with valid signatures
         if (hasValidSignature(item)) {
-            filtered.push(sanitizeThinkingPart(item));
+            const sanitized = sanitizeThinkingPart(item);
+            if (sanitized !== item) changed = true;
+            filtered.push(sanitized);
             continue;
         }
 
         // Drop unsigned thinking blocks
+        changed = true;
         logger.debug('[ThinkingUtils] Dropping unsigned thinking block');
     }
 
-    return filtered;
+    return changed ? filtered : contentArray;
 }
 
 /**
@@ -279,15 +311,29 @@ function filterContentArray(contentArray) {
  * @returns {Array<{role: string, parts: Array}>} Filtered contents with unsigned thinking blocks removed
  */
 export function filterUnsignedThinkingBlocks(contents) {
-    return contents.map(content => {
+    const needsFiltering = contents.some(content => {
+        if (!content || typeof content !== 'object') return false;
+        return Array.isArray(content.parts) && content.parts.some(isThinkingPart);
+    });
+
+    if (!needsFiltering) return contents;
+
+    let changed = false;
+    const filtered = contents.map(content => {
         if (!content || typeof content !== 'object') return content;
 
         if (Array.isArray(content.parts)) {
-            return { ...content, parts: filterContentArray(content.parts) };
+            const newParts = filterContentArray(content.parts);
+            if (newParts !== content.parts) {
+                changed = true;
+                return { ...content, parts: newParts };
+            }
         }
 
         return content;
     });
+
+    return changed ? filtered : contents;
 }
 
 /**
@@ -341,8 +387,12 @@ export function removeTrailingThinkingBlocks(content) {
 export function restoreThinkingSignatures(content) {
     if (!Array.isArray(content)) return content;
 
+    const needsFiltering = content.some(block => block && block.type === 'thinking');
+    if (!needsFiltering) return content;
+
     const originalLength = content.length;
     const filtered = [];
+    let changed = false;
 
     for (const block of content) {
         if (!block || block.type !== 'thinking') {
@@ -352,16 +402,21 @@ export function restoreThinkingSignatures(content) {
 
         // Keep blocks with valid signatures (>= MIN_SIGNATURE_LENGTH chars), sanitized
         if (block.signature && block.signature.length >= MIN_SIGNATURE_LENGTH) {
-            filtered.push(sanitizeAnthropicThinkingBlock(block));
+            const sanitized = sanitizeAnthropicThinkingBlock(block);
+            if (sanitized !== block) changed = true;
+            filtered.push(sanitized);
+        } else {
+            // Unsigned thinking blocks are dropped
+            changed = true;
         }
-        // Unsigned thinking blocks are dropped
     }
 
     if (filtered.length < originalLength) {
         logger.debug(`[ThinkingUtils] Dropped ${originalLength - filtered.length} unsigned thinking block(s)`);
+        changed = true;
     }
 
-    return filtered;
+    return changed ? filtered : content;
 }
 
 /**

@@ -1,0 +1,3 @@
+## 2024-05-15 - [Optimize Identity Preservation in Thinking Utils]
+**Learning:** `Array.map` combined with unconditionally creating objects always creates new arrays and references, which puts pressure on the garbage collector during hot path message processing.
+**Action:** Implemented 'fast path' identity checks using `Array.some()` to verify if modifications are actually necessary before allocating new arrays. This returns the original array when no changes are needed, minimizing garbage collection overhead, particularly when deep cloning arrays for large message arrays in `src/format/thinking-utils.js`.
