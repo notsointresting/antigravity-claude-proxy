@@ -1,0 +1,3 @@
+## 2024-05-24 - [Optimize array allocations on hot paths]
+**Learning:** Chaining `.map().filter()` causes excessive intermediate array allocations and object creations, putting pressure on garbage collection. On extremely hot paths like account selection (`HybridStrategy.#getCandidates`), this translates to measurable performance loss and GC stalls.
+**Action:** Use single-pass `for` loops rather than multiple chained higher-order array methods to concurrently evaluate and separate items when assigning elements to different categories. Avoid creating intermediate candidate wrappers for elements that will ultimately be discarded.
