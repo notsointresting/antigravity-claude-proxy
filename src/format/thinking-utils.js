@@ -76,6 +76,15 @@ export function clampGeminiThinkingBudget(modelName, budget) {
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    // Fast path: Check if any cache_control fields exist to avoid unnecessary array mapping and cloning
+    const hasCacheControl = messages.some(message => {
+        if (!message || typeof message !== 'object') return false;
+        if (!Array.isArray(message.content)) return false;
+        return message.content.some(block => block && typeof block === 'object' && block.cache_control !== undefined);
+    });
+
+    if (!hasCacheControl) return messages;
+
     let removedCount = 0;
 
     const cleaned = messages.map(message => {
@@ -246,6 +255,10 @@ function sanitizeToolUseBlock(block) {
  * Filter content array, keeping only thinking blocks with valid signatures.
  */
 function filterContentArray(contentArray) {
+    // Fast path: skip array cloning if there are no thinking parts to process
+    const hasThinkingParts = contentArray.some(item => item && typeof item === 'object' && isThinkingPart(item));
+    if (!hasThinkingParts) return contentArray;
+
     const filtered = [];
 
     for (const item of contentArray) {
@@ -279,6 +292,14 @@ function filterContentArray(contentArray) {
  * @returns {Array<{role: string, parts: Array}>} Filtered contents with unsigned thinking blocks removed
  */
 export function filterUnsignedThinkingBlocks(contents) {
+    // Fast path: avoid mapping if no parts contain thinking blocks
+    const needsFiltering = contents.some(content =>
+        content && typeof content === 'object' && Array.isArray(content.parts) &&
+        content.parts.some(part => part && typeof part === 'object' && isThinkingPart(part))
+    );
+
+    if (!needsFiltering) return contents;
+
     return contents.map(content => {
         if (!content || typeof content !== 'object') return content;
 
@@ -340,6 +361,10 @@ export function removeTrailingThinkingBlocks(content) {
  */
 export function restoreThinkingSignatures(content) {
     if (!Array.isArray(content)) return content;
+
+    // Fast path: return original array if there are no thinking blocks
+    const hasThinkingBlocks = content.some(block => block && block.type === 'thinking');
+    if (!hasThinkingBlocks) return content;
 
     const originalLength = content.length;
     const filtered = [];
