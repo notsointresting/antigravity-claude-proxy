@@ -76,6 +76,21 @@ export function clampGeminiThinkingBudget(modelName, budget) {
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    // Fast path: Check if any message actually has cache_control
+    let hasCacheControl = false;
+    for (const message of messages) {
+        if (!message || typeof message !== 'object' || !Array.isArray(message.content)) continue;
+        for (const block of message.content) {
+            if (block && typeof block === 'object' && block.cache_control !== undefined) {
+                hasCacheControl = true;
+                break;
+            }
+        }
+        if (hasCacheControl) break;
+    }
+
+    if (!hasCacheControl) return messages;
+
     let removedCount = 0;
 
     const cleaned = messages.map(message => {
@@ -86,6 +101,17 @@ export function cleanCacheControl(messages) {
 
         // Handle array content
         if (!Array.isArray(message.content)) return message;
+
+        // Fast path for specific message
+        let msgHasCacheControl = false;
+        for (const block of message.content) {
+            if (block && typeof block === 'object' && block.cache_control !== undefined) {
+                msgHasCacheControl = true;
+                break;
+            }
+        }
+
+        if (!msgHasCacheControl) return message;
 
         const cleanedContent = message.content.map(block => {
             if (!block || typeof block !== 'object') return block;
@@ -279,10 +305,38 @@ function filterContentArray(contentArray) {
  * @returns {Array<{role: string, parts: Array}>} Filtered contents with unsigned thinking blocks removed
  */
 export function filterUnsignedThinkingBlocks(contents) {
+    if (!Array.isArray(contents)) return contents;
+
+    // Fast path: check if we have any thinking parts that might need sanitization or dropping
+    let needsModification = false;
+    for (const content of contents) {
+        if (content && typeof content === 'object' && Array.isArray(content.parts)) {
+            for (const part of content.parts) {
+                if (part && typeof part === 'object' && isThinkingPart(part)) {
+                    needsModification = true;
+                    break;
+                }
+            }
+        }
+        if (needsModification) break;
+    }
+
+    if (!needsModification) return contents;
+
     return contents.map(content => {
         if (!content || typeof content !== 'object') return content;
 
         if (Array.isArray(content.parts)) {
+            // Fast path per content part
+            let contentNeedsModification = false;
+            for (const part of content.parts) {
+                if (part && typeof part === 'object' && isThinkingPart(part)) {
+                    contentNeedsModification = true;
+                    break;
+                }
+            }
+            if (!contentNeedsModification) return content;
+
             return { ...content, parts: filterContentArray(content.parts) };
         }
 
@@ -340,6 +394,17 @@ export function removeTrailingThinkingBlocks(content) {
  */
 export function restoreThinkingSignatures(content) {
     if (!Array.isArray(content)) return content;
+
+    // Fast path: Check if there are any thinking blocks at all
+    let needsModification = false;
+    for (const block of content) {
+        if (block && block.type === 'thinking') {
+            needsModification = true;
+            break;
+        }
+    }
+
+    if (!needsModification) return content;
 
     const originalLength = content.length;
     const filtered = [];
