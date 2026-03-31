@@ -76,35 +76,61 @@ export function clampGeminiThinkingBudget(modelName, budget) {
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    // Fast path: check if any modifications are needed to avoid allocations
+    let hasModifications = false;
+    for (let i = 0; i < messages.length; i++) {
+        const message = messages[i];
+        if (message && typeof message === 'object' && Array.isArray(message.content)) {
+            for (let j = 0; j < message.content.length; j++) {
+                const block = message.content[j];
+                if (block && typeof block === 'object' && block.cache_control !== undefined) {
+                    hasModifications = true;
+                    break;
+                }
+            }
+        }
+        if (hasModifications) break;
+    }
+
+    if (!hasModifications) return messages;
+
     let removedCount = 0;
+    const cleaned = new Array(messages.length);
 
-    const cleaned = messages.map(message => {
-        if (!message || typeof message !== 'object') return message;
+    for (let i = 0; i < messages.length; i++) {
+        const message = messages[i];
 
-        // Handle string content (no cache_control possible)
-        if (typeof message.content === 'string') return message;
+        if (!message || typeof message !== 'object' || typeof message.content === 'string' || !Array.isArray(message.content)) {
+            cleaned[i] = message;
+            continue;
+        }
 
-        // Handle array content
-        if (!Array.isArray(message.content)) return message;
+        let messageModified = false;
+        const cleanedContent = new Array(message.content.length);
 
-        const cleanedContent = message.content.map(block => {
-            if (!block || typeof block !== 'object') return block;
+        for (let j = 0; j < message.content.length; j++) {
+            const block = message.content[j];
 
-            // Check if cache_control exists before destructuring
-            if (block.cache_control === undefined) return block;
+            if (!block || typeof block !== 'object' || block.cache_control === undefined) {
+                cleanedContent[j] = block;
+                continue;
+            }
 
-            // Create a shallow copy without cache_control
             const { cache_control, ...cleanBlock } = block;
             removedCount++;
+            messageModified = true;
+            cleanedContent[j] = cleanBlock;
+        }
 
-            return cleanBlock;
-        });
-
-        return {
-            ...message,
-            content: cleanedContent
-        };
-    });
+        if (messageModified) {
+            cleaned[i] = {
+                ...message,
+                content: cleanedContent
+            };
+        } else {
+            cleaned[i] = message;
+        }
+    }
 
     if (removedCount > 0) {
         logger.debug(`[ThinkingUtils] Removed cache_control from ${removedCount} block(s)`);
@@ -279,15 +305,49 @@ function filterContentArray(contentArray) {
  * @returns {Array<{role: string, parts: Array}>} Filtered contents with unsigned thinking blocks removed
  */
 export function filterUnsignedThinkingBlocks(contents) {
-    return contents.map(content => {
-        if (!content || typeof content !== 'object') return content;
+    if (!Array.isArray(contents)) return contents;
 
-        if (Array.isArray(content.parts)) {
-            return { ...content, parts: filterContentArray(content.parts) };
+    // Fast path: check if any modifications are needed to avoid allocations
+    let hasModifications = false;
+    for (let i = 0; i < contents.length; i++) {
+        const content = contents[i];
+        if (content && typeof content === 'object' && Array.isArray(content.parts)) {
+            for (let j = 0; j < content.parts.length; j++) {
+                const item = content.parts[j];
+                if (item && typeof item === 'object') {
+                    const isThinking = item.type === 'thinking' ||
+                        item.type === 'redacted_thinking' ||
+                        item.thinking !== undefined ||
+                        item.thought === true;
+
+                    if (isThinking) {
+                        hasModifications = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (hasModifications) break;
+    }
+
+    if (!hasModifications) return contents;
+
+    const filtered = new Array(contents.length);
+    for (let i = 0; i < contents.length; i++) {
+        const content = contents[i];
+        if (!content || typeof content !== 'object') {
+            filtered[i] = content;
+            continue;
         }
 
-        return content;
-    });
+        if (Array.isArray(content.parts)) {
+            filtered[i] = { ...content, parts: filterContentArray(content.parts) };
+        } else {
+            filtered[i] = content;
+        }
+    }
+
+    return filtered;
 }
 
 /**
@@ -340,6 +400,18 @@ export function removeTrailingThinkingBlocks(content) {
  */
 export function restoreThinkingSignatures(content) {
     if (!Array.isArray(content)) return content;
+
+    // Fast path: check if any modifications are needed to avoid allocations
+    let hasModifications = false;
+    for (let i = 0; i < content.length; i++) {
+        const block = content[i];
+        if (block && block.type === 'thinking') {
+            hasModifications = true;
+            break;
+        }
+    }
+
+    if (!hasModifications) return content;
 
     const originalLength = content.length;
     const filtered = [];
