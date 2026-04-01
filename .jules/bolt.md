@@ -1,0 +1,3 @@
+## 2026-04-01 - Avoid chained `.map().filter()` for categorization
+**Learning:** In hot paths or complex filtering logic (like `HybridStrategy.#getCandidates`), chaining `Array.map().filter()` creates unnecessary intermediate arrays and closures. When evaluating elements for multiple fallback categories, iterating over the array multiple times with different filters is inefficient.
+**Action:** Use a single-pass `for` loop to evaluate elements and push them into appropriate category arrays simultaneously. This reduces memory allocation and execution time, avoiding extra `.map()` wrappers when standard variable assignment during iteration works just as well.
