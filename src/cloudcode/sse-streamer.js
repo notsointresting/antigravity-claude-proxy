@@ -38,10 +38,12 @@ export async function* streamSSEResponse(response, originalModel) {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        let newlineIndex;
 
-        for (const line of lines) {
+        while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, newlineIndex);
+            buffer = buffer.slice(newlineIndex + 1);
+
             if (!line.startsWith('data:')) continue;
 
             const jsonText = line.slice(5).trim();
