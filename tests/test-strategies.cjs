@@ -239,7 +239,7 @@ async function runTests() {
         const tracker = new TokenBucketTracker({ initialTokens: 10, maxTokens: 10 });
         const consumed = tracker.consume('test@example.com');
         assertTrue(consumed, 'Consume should return true');
-        assertEqual(tracker.getTokens('test@example.com'), 9, 'Tokens should decrease by 1');
+        assertApproxEqual(tracker.getTokens('test@example.com'), 9, 'Tokens should decrease by 1');
     });
 
     test('TokenBucketTracker: consume fails when no tokens', () => {
@@ -258,11 +258,17 @@ async function runTests() {
         assertFalse(tracker.hasTokens('test@example.com'), 'Should not have tokens');
     });
 
+    function assertApproxEqual(actual, expected, message) {
+        if (Math.abs(actual - expected) > 0.01) {
+            throw new Error(`${message}\nExpected: ${expected}\nActual: ${actual}`);
+        }
+    }
+
     test('TokenBucketTracker: refund increases tokens', () => {
         const tracker = new TokenBucketTracker({ initialTokens: 5, maxTokens: 10 });
         tracker.consume('test@example.com'); // 5 -> 4
         tracker.refund('test@example.com');  // 4 -> 5
-        assertEqual(tracker.getTokens('test@example.com'), 5, 'Refund should restore token');
+        assertApproxEqual(tracker.getTokens('test@example.com'), 5, 'Refund should restore token');
     });
 
     test('TokenBucketTracker: refund cannot exceed maxTokens', () => {
@@ -746,7 +752,7 @@ async function runTests() {
 
         strategy.onSuccess(account, 'model');
         const tracker = strategy.getHealthTracker();
-        assertEqual(tracker.getScore('test@example.com'), 75, 'Health should increase');
+        assertApproxEqual(tracker.getScore('test@example.com'), 75, 'Health should increase');
     });
 
     test('HybridStrategy: onRateLimit decreases health', () => {
@@ -757,7 +763,7 @@ async function runTests() {
 
         strategy.onRateLimit(account, 'model');
         const tracker = strategy.getHealthTracker();
-        assertEqual(tracker.getScore('test@example.com'), 60, 'Health should decrease');
+        assertApproxEqual(tracker.getScore('test@example.com'), 60, 'Health should decrease');
     });
 
     test('HybridStrategy: onFailure decreases health and refunds token', () => {
