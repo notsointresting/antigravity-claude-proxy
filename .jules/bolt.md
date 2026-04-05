@@ -1,0 +1,3 @@
+## 2026-04-05 - Optimize Hot Paths to Reduce GC Pressure
+**Learning:** Chaining `.map()` and `.filter()` operations on hot paths (like candidate selection in load balancing strategies) creates significant memory allocations and subsequent garbage collection overhead.
+**Action:** Always replace `.map().filter()` chains with single-pass `for` loops on execution-critical paths (e.g., in `HybridStrategy.#getCandidates` and `BaseStrategy.getUsableAccounts`) to bypass dynamic array resizing and immediate disposal of intermediate arrays.
