@@ -100,9 +100,17 @@ export class BaseStrategy {
      * @returns {Array} Array of usable accounts with their original indices
      */
     getUsableAccounts(accounts, modelId) {
-        return accounts
-            .map((account, index) => ({ account, index }))
-            .filter(({ account }) => this.isAccountUsable(account, modelId));
+        // ⚡ Bolt Optimization: Replaced .map().filter() with a single-pass for loop.
+        // Impact: Eliminates intermediate array allocations and halves iteration count (2N -> N).
+        // Improves performance during account selection by reducing GC overhead.
+        const usable = [];
+        for (let index = 0; index < accounts.length; index++) {
+            const account = accounts[index];
+            if (this.isAccountUsable(account, modelId)) {
+                usable.push({ account, index });
+            }
+        }
+        return usable;
     }
 }
 
