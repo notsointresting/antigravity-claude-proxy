@@ -1,0 +1,3 @@
+## 2024-05-23 - Avoid unconditional .map() over arrays for deep cloning fast paths
+**Learning:** Functions like `cleanCacheControl`, `filterUnsignedThinkingBlocks`, `restoreThinkingSignatures`, and `reorderAssistantContent` in `src/format/thinking-utils.js` use `.map()` or create new arrays unconditionally. When these functions process large arrays (like chat histories) and don't actually modify anything, they create unnecessary object allocations and increase garbage collection pressure, which can be a bottleneck on hot paths.
+**Action:** Implement 'fast path' identity checks (e.g., using `Array.some()` or `for` loops) to return the original array when modifications are unnecessary.

@@ -76,6 +76,26 @@ export function clampGeminiThinkingBudget(modelName, budget) {
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    // Fast path: Check if any cache_control exists
+    let needsCleaning = false;
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (msg && typeof msg === 'object' && Array.isArray(msg.content)) {
+            for (let j = 0; j < msg.content.length; j++) {
+                const block = msg.content[j];
+                if (block && typeof block === 'object' && block.cache_control !== undefined) {
+                    needsCleaning = true;
+                    break;
+                }
+            }
+            if (needsCleaning) break;
+        }
+    }
+
+    if (!needsCleaning) {
+        return messages;
+    }
+
     let removedCount = 0;
 
     const cleaned = messages.map(message => {
@@ -279,6 +299,27 @@ function filterContentArray(contentArray) {
  * @returns {Array<{role: string, parts: Array}>} Filtered contents with unsigned thinking blocks removed
  */
 export function filterUnsignedThinkingBlocks(contents) {
+    // Fast path: Check if any part is a thinking block that lacks a valid signature
+    let needsFiltering = false;
+    for (let i = 0; i < contents.length; i++) {
+        const content = contents[i];
+        if (content && typeof content === 'object' && Array.isArray(content.parts)) {
+            for (let j = 0; j < content.parts.length; j++) {
+                const item = content.parts[j];
+                // filterContentArray also sanitizes valid thinking blocks
+                if (item && typeof item === 'object' && isThinkingPart(item)) {
+                    needsFiltering = true;
+                    break;
+                }
+            }
+            if (needsFiltering) break;
+        }
+    }
+
+    if (!needsFiltering) {
+        return contents;
+    }
+
     return contents.map(content => {
         if (!content || typeof content !== 'object') return content;
 
@@ -341,6 +382,21 @@ export function removeTrailingThinkingBlocks(content) {
 export function restoreThinkingSignatures(content) {
     if (!Array.isArray(content)) return content;
 
+    // Fast path: Check if any thinking block exists that needs processing
+    let needsProcessing = false;
+    for (let i = 0; i < content.length; i++) {
+        const block = content[i];
+        // sanitizeAnthropicThinkingBlock may modify valid thinking and redacted_thinking blocks
+        if (block && (block.type === 'thinking' || block.type === 'redacted_thinking')) {
+            needsProcessing = true;
+            break;
+        }
+    }
+
+    if (!needsProcessing) {
+        return content;
+    }
+
     const originalLength = content.length;
     const filtered = [];
 
@@ -376,12 +432,43 @@ export function restoreThinkingSignatures(content) {
 export function reorderAssistantContent(content) {
     if (!Array.isArray(content)) return content;
 
-    // Even for single-element arrays, we need to sanitize thinking blocks
-    if (content.length === 1) {
-        const block = content[0];
-        if (block && (block.type === 'thinking' || block.type === 'redacted_thinking')) {
-            return [sanitizeAnthropicThinkingBlock(block)];
+    // Fast path: Check if any sanitization, filtering, or reordering is needed
+    let needsProcessing = false;
+    let expectedType = 'thinking'; // 1. thinking -> 2. text -> 3. tool_use
+    for (let i = 0; i < content.length; i++) {
+        const block = content[i];
+        if (!block) {
+            needsProcessing = true;
+            break;
         }
+
+        if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+            if (expectedType !== 'thinking' || Object.keys(block).some(k => !['type', 'thinking', 'signature', 'data'].includes(k))) {
+                needsProcessing = true;
+                break;
+            }
+        } else if (block.type === 'text') {
+            if (expectedType === 'thinking') expectedType = 'text';
+            if (expectedType !== 'text' || !block.text || block.text.trim().length === 0 || Object.keys(block).some(k => !['type', 'text'].includes(k))) {
+                needsProcessing = true;
+                break;
+            }
+        } else if (block.type === 'tool_use') {
+            if (expectedType === 'thinking' || expectedType === 'text') expectedType = 'tool_use';
+            if (expectedType !== 'tool_use' || Object.keys(block).some(k => !['type', 'id', 'name', 'input', 'thoughtSignature'].includes(k))) {
+                needsProcessing = true;
+                break;
+            }
+        } else {
+            if (expectedType === 'thinking') expectedType = 'text';
+            if (expectedType !== 'text') {
+                needsProcessing = true;
+                break;
+            }
+        }
+    }
+
+    if (!needsProcessing) {
         return content;
     }
 
