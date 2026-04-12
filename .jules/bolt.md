@@ -1,0 +1,3 @@
+## 2024-05-18 - Avoid map then filter chains on hot paths
+**Learning:** Chaining `.map()` and `.filter()` creates intermediate arrays that increase memory allocations and garbage collection pressure, especially on hot paths like account selection or message handling. In `HybridStrategy.#getCandidates` and `BaseStrategy.getUsableAccounts`, the application filters over arrays by first mapping to an object with `account` and `index`, then filtering.
+**Action:** Replace `.map().filter()` chains with a single `for` loop, especially when the resulting array size is unknown or when dealing with frequent iterations. This avoids the creation of intermediate arrays and reduces GC overhead.
