@@ -100,9 +100,16 @@ export class BaseStrategy {
      * @returns {Array} Array of usable accounts with their original indices
      */
     getUsableAccounts(accounts, modelId) {
-        return accounts
-            .map((account, index) => ({ account, index }))
-            .filter(({ account }) => this.isAccountUsable(account, modelId));
+        // Bolt: Optimized using a single-pass for loop to avoid Array.map().filter()
+        // intermediate array allocations on the hot path for account selection
+        const usable = [];
+        for (let index = 0; index < accounts.length; index++) {
+            const account = accounts[index];
+            if (this.isAccountUsable(account, modelId)) {
+                usable.push({ account, index });
+            }
+        }
+        return usable;
     }
 }
 

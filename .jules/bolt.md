@@ -1,0 +1,4 @@
+
+## 2024-06-13 - [Performance] Optimize account selection strategies
+**Learning:** Hot paths, such as iterative array filtering in load balancing strategies like `BaseStrategy.getUsableAccounts` and `HybridStrategy.#getCandidates`, can generate significant memory allocation and garbage collection overhead if multiple chained `Array.map().filter()` calls are used. In `HybridStrategy.#getCandidates` specifically, evaluating the array four separate times resulted in a worst-case O(4n) operation.
+**Action:** Replace functional programming chains (`map().filter()`) with strict single-pass `for` loops on high-throughput or highly concurrent selection paths. This allocates a single result array and processes conditionals directly, achieving O(n) performance and minimizing object creation/GC pauses.
