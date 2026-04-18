@@ -144,8 +144,15 @@ export class AccountManager {
      * @returns {boolean} True if every enabled account is invalid
      */
     isAllAccountsInvalid() {
-        const enabled = this.#accounts.filter(a => a.enabled !== false);
-        return enabled.length > 0 && enabled.every(a => a.isInvalid);
+        let hasEnabled = false;
+        for (let i = 0; i < this.#accounts.length; i++) {
+            const acc = this.#accounts[i];
+            if (acc.enabled !== false) {
+                hasEnabled = true;
+                if (!acc.isInvalid) return false;
+            }
+        }
+        return hasEnabled;
     }
 
     /**
