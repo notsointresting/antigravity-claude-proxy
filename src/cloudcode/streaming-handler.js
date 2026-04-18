@@ -70,7 +70,12 @@ export async function* sendMessageStream(anthropicRequest, accountManager, fallb
             // Invalid accounts won't self-recover, so waiting would be an infinite loop
             if (accountManager.isAllAccountsInvalid()) {
                 const invalidAccounts = accountManager.getInvalidAccounts();
-                const reasons = [...new Set(invalidAccounts.map(a => a.invalidReason).filter(Boolean))];
+                const reasonSet = new Set();
+                for (let i = 0; i < invalidAccounts.length; i++) {
+                    const reason = invalidAccounts[i].invalidReason;
+                    if (reason) reasonSet.add(reason);
+                }
+                const reasons = [...reasonSet];
                 throw new Error(
                     `All accounts are invalid: ${reasons.join('; ') || 'unknown reason'}. Visit the WebUI to fix them.`
                 );

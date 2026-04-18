@@ -20,13 +20,19 @@ export function isAllRateLimited(accounts, modelId) {
     if (accounts.length === 0) return true;
     if (!modelId) return false; // No model specified = not rate limited
 
-    return accounts.every(acc => {
-        if (acc.isInvalid) return true; // Invalid accounts count as unavailable
-        if (acc.enabled === false) return true; // Disabled accounts count as unavailable
-        const modelLimits = acc.modelRateLimits || {};
+    const now = Date.now();
+    for (let i = 0; i < accounts.length; i++) {
+        const acc = accounts[i];
+        if (acc.isInvalid) continue; // Invalid accounts count as unavailable
+        if (acc.enabled === false) continue; // Disabled accounts count as unavailable
+
+        const modelLimits = acc.modelRateLimits;
+        if (!modelLimits) return false;
+
         const limit = modelLimits[modelId];
-        return limit && limit.isRateLimited && limit.resetTime > Date.now();
-    });
+        if (!limit || !limit.isRateLimited || limit.resetTime <= now) return false;
+    }
+    return true;
 }
 
 /**
@@ -37,21 +43,25 @@ export function isAllRateLimited(accounts, modelId) {
  * @returns {Array} Array of available account objects
  */
 export function getAvailableAccounts(accounts, modelId = null) {
-    return accounts.filter(acc => {
-        if (acc.isInvalid) return false;
+    const available = [];
+    const now = Date.now();
+    for (let i = 0; i < accounts.length; i++) {
+        const acc = accounts[i];
+        if (acc.isInvalid) continue;
 
         // WebUI: Skip disabled accounts
-        if (acc.enabled === false) return false;
+        if (acc.enabled === false) continue;
 
         if (modelId && acc.modelRateLimits && acc.modelRateLimits[modelId]) {
             const limit = acc.modelRateLimits[modelId];
-            if (limit.isRateLimited && limit.resetTime > Date.now()) {
-                return false;
+            if (limit.isRateLimited && limit.resetTime > now) {
+                continue;
             }
         }
 
-        return true;
-    });
+        available.push(acc);
+    }
+    return available;
 }
 
 /**
