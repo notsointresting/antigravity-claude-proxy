@@ -1,0 +1,3 @@
+## 2026-04-24 - Avoiding multiple chained map-filters in hot paths
+**Learning:** In account selection strategies (like `HybridStrategy.#getCandidates` and `BaseStrategy.getUsableAccounts`), chained `.map().filter()` operations result in excessive intermediate object allocations (e.g., `{ account, index }`) and multiple array passes. In a proxy, this hot path executes repeatedly on every single request across multiple models, creating significant garbage collection pressure.
+**Action:** Replace functional array method chains (`.map().filter()`) with single-pass `for` loops on hot path routines to minimize intermediate memory allocations and evaluate all fallback conditions concurrently in one iteration.
