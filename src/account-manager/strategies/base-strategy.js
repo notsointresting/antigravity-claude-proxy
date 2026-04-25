@@ -100,9 +100,14 @@ export class BaseStrategy {
      * @returns {Array} Array of usable accounts with their original indices
      */
     getUsableAccounts(accounts, modelId) {
-        return accounts
-            .map((account, index) => ({ account, index }))
-            .filter(({ account }) => this.isAccountUsable(account, modelId));
+        const result = [];
+        for (let i = 0; i < accounts.length; i++) {
+            const account = accounts[i];
+            if (this.isAccountUsable(account, modelId)) {
+                result.push({ account, index: i });
+            }
+        }
+        return result;
     }
 }
 
