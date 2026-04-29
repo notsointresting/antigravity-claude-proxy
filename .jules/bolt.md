@@ -1,0 +1,3 @@
+## 2025-05-14 - Replace array allocations with for-loops for strategy candidate selection
+**Learning:** Chaining `.map().filter()` operations creates significant array allocation overhead (especially wrapping elements in objects like `{account, index}`). In a high-frequency code path like strategy selection (`getUsableAccounts` and `#getCandidates`), this puts unnecessary pressure on the garbage collector.
+**Action:** Use single-pass `for` loops on known-size array paths instead of chained `.map().filter()` when processing candidates and constructing new object hierarchies on performance-critical paths.
