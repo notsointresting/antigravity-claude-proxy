@@ -1,0 +1,3 @@
+## 2025-02-23 - [Optimize Array Operations on Hot Paths]
+**Learning:** Chaining array methods like `.map().filter()` creates intermediate arrays that are immediately discarded, leading to unnecessary garbage collection (GC) pressure. In performance-critical applications, especially in hot paths like account selection loops, this GC overhead can accumulate and negatively impact throughput and latency.
+**Action:** Replace `Array.map().filter()` chains with single-pass `for` loops on hot paths. This avoids intermediate object allocation and reduces memory churn. Additionally, hoist invariant function calls (e.g., `Date.now()`) outside of mapping or sorting loops to further reduce redundant computation.
