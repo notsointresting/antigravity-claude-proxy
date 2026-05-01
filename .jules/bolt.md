@@ -1,0 +1,4 @@
+
+## 2026-05-01 - Object Allocations in Hot Paths
+**Learning:** Account selection strategies like HybridStrategy evaluate candidate accounts on every request. Chaining `Array.map().filter()` to wrap accounts in `{ account, index }` objects creates unnecessary intermediate arrays and wrapper objects on a highly frequent hot path, increasing Garbage Collection (GC) pressure. Additionally, evaluating multiple fallback levels sequentially causes redundant object allocations and redundant filter evaluations (e.g., calling `isAccountUsable` multiple times per account).
+**Action:** When filtering and transforming arrays in performance-critical paths (like account selection algorithms), use single-pass `for` loops with pre-allocated or dynamically grown arrays. For multi-tier fallback logic, evaluate all tiers in a single pass to eliminate redundant method calls and intermediate allocations.
