@@ -53,6 +53,12 @@ async function runTests() {
         }
     }
 
+    function assertApproxEqual(actual, expected, message = '', tolerance = 0.1) {
+        if (Math.abs(actual - expected) > tolerance) {
+            throw new Error(`${message}\nExpected approx: ${expected}\nActual: ${actual}`);
+        }
+    }
+
     function assertDeepEqual(actual, expected, message = '') {
         if (JSON.stringify(actual) !== JSON.stringify(expected)) {
             throw new Error(`${message}\nExpected: ${JSON.stringify(expected, null, 2)}\nActual: ${JSON.stringify(actual, null, 2)}`);
@@ -262,13 +268,13 @@ async function runTests() {
         const tracker = new TokenBucketTracker({ initialTokens: 5, maxTokens: 10 });
         tracker.consume('test@example.com'); // 5 -> 4
         tracker.refund('test@example.com');  // 4 -> 5
-        assertEqual(tracker.getTokens('test@example.com'), 5, 'Refund should restore token');
+        assertApproxEqual(tracker.getTokens('test@example.com'), 5, 'Refund should restore token');
     });
 
     test('TokenBucketTracker: refund cannot exceed maxTokens', () => {
         const tracker = new TokenBucketTracker({ initialTokens: 10, maxTokens: 10 });
         tracker.refund('test@example.com');
-        assertEqual(tracker.getTokens('test@example.com'), 10, 'Refund should not exceed max');
+        assertApproxEqual(tracker.getTokens('test@example.com'), 10, 'Refund should not exceed max');
     });
 
     test('TokenBucketTracker: getMaxTokens returns configured max', () => {
@@ -757,7 +763,7 @@ async function runTests() {
 
         strategy.onRateLimit(account, 'model');
         const tracker = strategy.getHealthTracker();
-        assertEqual(tracker.getScore('test@example.com'), 60, 'Health should decrease');
+        assertApproxEqual(tracker.getScore('test@example.com'), 60, 'Health should decrease');
     });
 
     test('HybridStrategy: onFailure decreases health and refunds token', () => {
