@@ -1,0 +1,3 @@
+## 2026-05-02 - Array mapping/filtering optimization on hot paths
+**Learning:** Hot paths like `BaseStrategy.getUsableAccounts` and `HybridStrategy.#getCandidates` iterated over accounts multiple times, performing redundant condition checks and unnecessarily allocating `{ account, index }` wrapper objects for filtered items. This caused GC overhead on every account selection request.
+**Action:** Replaced chained `.map().filter()` calls with a single-pass `for` loop, allocating exactly one wrapper per valid object, placing it into respective condition bins (`candidates`, `emergency`, `fallback`, `lastResort`).
