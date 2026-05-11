@@ -1,0 +1,3 @@
+## 2026-05-11 - [Optimize `HybridStrategy` algorithm]
+**Learning:** In hot code paths like account selection (`HybridStrategy`), chained array methods (`.map().filter()`) and sorting operations (`.sort()`) create intermediate arrays which causes excessive memory allocation and garbage collection pressure, especially when the conditions in `filter` process multiple checks.
+**Action:** When finding the best element or categorizing an array, replace O(n log n) `.sort()` and multi-pass `.map().filter()` chains with a single O(n) pass using a standard `for` loop. Keep track of the highest score or categorize elements into separate arrays in real-time during the iteration.
