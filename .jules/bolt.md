@@ -1,0 +1,3 @@
+## 2026-05-16 - Optimize `#getCandidates` and `selectAccount` in HybridStrategy
+**Learning:** Chained array methods like `.map().filter()` combined with `.sort()` on critical code paths construct intermediate arrays and create unnecessary garbage collection pressure, as well as running in O(n log n) time when selecting the single best item.
+**Action:** When finding the optimal or highest-scored element in a collection on a hot path, track the best candidate during a single-pass `for` loop to eliminate unnecessary memory allocations and improve complexity to O(n). Similarly, bucket candidates in a single pass rather than filtering multiple times.
