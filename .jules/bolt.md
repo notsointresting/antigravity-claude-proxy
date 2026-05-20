@@ -1,0 +1,3 @@
+## 2024-05-20 - GC Optimization via Structural Sharing
+**Learning:** The Cloud Code API proxy frequently sanitizes and transforms large chat history arrays via `cleanCacheControl`, `restoreThinkingSignatures`, and similar functions. When unconditionally remapping arrays and spreading objects, it causes significant Garbage Collection (GC) overhead and creates brand new object identities.
+**Action:** Implement fast-path 'structural sharing' checks. Only run `.map()` or clone objects when a mutation is strictly required (e.g. tracking key counts or using `.some()` to detect dirty blocks). This returns the original array/object reference unchanged when it's already clean, significantly reducing memory allocations without altering behavior.
