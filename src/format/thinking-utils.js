@@ -76,6 +76,23 @@ export function clampGeminiThinkingBudget(modelName, budget) {
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    let hasCacheControl = false;
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (msg && typeof msg === 'object' && Array.isArray(msg.content)) {
+            for (let j = 0; j < msg.content.length; j++) {
+                const block = msg.content[j];
+                if (block && typeof block === 'object' && block.cache_control !== undefined) {
+                    hasCacheControl = true;
+                    break;
+                }
+            }
+        }
+        if (hasCacheControl) break;
+    }
+
+    if (!hasCacheControl) return messages;
+
     let removedCount = 0;
 
     const cleaned = messages.map(message => {
@@ -87,6 +104,7 @@ export function cleanCacheControl(messages) {
         // Handle array content
         if (!Array.isArray(message.content)) return message;
 
+        let contentModified = false;
         const cleanedContent = message.content.map(block => {
             if (!block || typeof block !== 'object') return block;
 
@@ -96,9 +114,12 @@ export function cleanCacheControl(messages) {
             // Create a shallow copy without cache_control
             const { cache_control, ...cleanBlock } = block;
             removedCount++;
+            contentModified = true;
 
             return cleanBlock;
         });
+
+        if (!contentModified) return message;
 
         return {
             ...message,
@@ -170,6 +191,11 @@ export function hasUnsignedThinkingBlocks(messages) {
 function sanitizeThinkingPart(part) {
     // Gemini-style thought blocks: { thought: true, text, thoughtSignature }
     if (part.thought === true) {
+        let expectedKeys = 1;
+        if (part.text !== undefined) expectedKeys++;
+        if (part.thoughtSignature !== undefined) expectedKeys++;
+        if (Object.keys(part).length === expectedKeys) return part;
+
         const sanitized = { thought: true };
         if (part.text !== undefined) sanitized.text = part.text;
         if (part.thoughtSignature !== undefined) sanitized.thoughtSignature = part.thoughtSignature;
@@ -178,6 +204,12 @@ function sanitizeThinkingPart(part) {
 
     // Anthropic-style thinking blocks: { type: "thinking", thinking, signature }
     if (part.type === 'thinking' || part.thinking !== undefined) {
+        let expectedKeys = 0;
+        if (part.type !== undefined) expectedKeys++;
+        if (part.thinking !== undefined) expectedKeys++;
+        if (part.signature !== undefined) expectedKeys++;
+        if (Object.keys(part).length === expectedKeys) return part;
+
         const sanitized = { type: 'thinking' };
         if (part.thinking !== undefined) sanitized.thinking = part.thinking;
         if (part.signature !== undefined) sanitized.signature = part.signature;
@@ -195,6 +227,11 @@ function sanitizeAnthropicThinkingBlock(block) {
     if (!block) return block;
 
     if (block.type === 'thinking') {
+        let expectedKeys = 1;
+        if (block.thinking !== undefined) expectedKeys++;
+        if (block.signature !== undefined) expectedKeys++;
+        if (Object.keys(block).length === expectedKeys) return block;
+
         const sanitized = { type: 'thinking' };
         if (block.thinking !== undefined) sanitized.thinking = block.thinking;
         if (block.signature !== undefined) sanitized.signature = block.signature;
@@ -202,6 +239,10 @@ function sanitizeAnthropicThinkingBlock(block) {
     }
 
     if (block.type === 'redacted_thinking') {
+        let expectedKeys = 1;
+        if (block.data !== undefined) expectedKeys++;
+        if (Object.keys(block).length === expectedKeys) return block;
+
         const sanitized = { type: 'redacted_thinking' };
         if (block.data !== undefined) sanitized.data = block.data;
         return sanitized;
@@ -219,6 +260,10 @@ function sanitizeAnthropicThinkingBlock(block) {
 function sanitizeTextBlock(block) {
     if (!block || block.type !== 'text') return block;
 
+    let expectedKeys = 1;
+    if (block.text !== undefined) expectedKeys++;
+    if (Object.keys(block).length === expectedKeys) return block;
+
     const sanitized = { type: 'text' };
     if (block.text !== undefined) sanitized.text = block.text;
     return sanitized;
@@ -233,6 +278,13 @@ function sanitizeTextBlock(block) {
 function sanitizeToolUseBlock(block) {
     if (!block || block.type !== 'tool_use') return block;
 
+    let expectedKeys = 1;
+    if (block.id !== undefined) expectedKeys++;
+    if (block.name !== undefined) expectedKeys++;
+    if (block.input !== undefined) expectedKeys++;
+    if (block.thoughtSignature !== undefined) expectedKeys++;
+    if (Object.keys(block).length === expectedKeys) return block;
+
     const sanitized = { type: 'tool_use' };
     if (block.id !== undefined) sanitized.id = block.id;
     if (block.name !== undefined) sanitized.name = block.name;
@@ -246,6 +298,23 @@ function sanitizeToolUseBlock(block) {
  * Filter content array, keeping only thinking blocks with valid signatures.
  */
 function filterContentArray(contentArray) {
+    let needsModification = false;
+    for (let i = 0; i < contentArray.length; i++) {
+        const item = contentArray[i];
+        if (item && typeof item === 'object' && isThinkingPart(item)) {
+            if (!hasValidSignature(item)) {
+                needsModification = true;
+                break;
+            }
+            if (sanitizeThinkingPart(item) !== item) {
+                needsModification = true;
+                break;
+            }
+        }
+    }
+
+    if (!needsModification) return contentArray;
+
     const filtered = [];
 
     for (const item of contentArray) {
@@ -279,11 +348,29 @@ function filterContentArray(contentArray) {
  * @returns {Array<{role: string, parts: Array}>} Filtered contents with unsigned thinking blocks removed
  */
 export function filterUnsignedThinkingBlocks(contents) {
+    if (!Array.isArray(contents)) return contents;
+
+    let needsModification = false;
+    for (let i = 0; i < contents.length; i++) {
+        const content = contents[i];
+        if (content && typeof content === 'object' && Array.isArray(content.parts)) {
+            if (filterContentArray(content.parts) !== content.parts) {
+                needsModification = true;
+                break;
+            }
+        }
+    }
+
+    if (!needsModification) return contents;
+
     return contents.map(content => {
         if (!content || typeof content !== 'object') return content;
 
         if (Array.isArray(content.parts)) {
-            return { ...content, parts: filterContentArray(content.parts) };
+            const newParts = filterContentArray(content.parts);
+            if (newParts !== content.parts) {
+                return { ...content, parts: newParts };
+            }
         }
 
         return content;
@@ -341,6 +428,23 @@ export function removeTrailingThinkingBlocks(content) {
 export function restoreThinkingSignatures(content) {
     if (!Array.isArray(content)) return content;
 
+    let needsModification = false;
+    for (let i = 0; i < content.length; i++) {
+        const block = content[i];
+        if (block && block.type === 'thinking') {
+            if (!block.signature || block.signature.length < MIN_SIGNATURE_LENGTH) {
+                needsModification = true;
+                break;
+            }
+            if (sanitizeAnthropicThinkingBlock(block) !== block) {
+                needsModification = true;
+                break;
+            }
+        }
+    }
+
+    if (!needsModification) return content;
+
     const originalLength = content.length;
     const filtered = [];
 
@@ -380,10 +484,50 @@ export function reorderAssistantContent(content) {
     if (content.length === 1) {
         const block = content[0];
         if (block && (block.type === 'thinking' || block.type === 'redacted_thinking')) {
-            return [sanitizeAnthropicThinkingBlock(block)];
+            const sanitized = sanitizeAnthropicThinkingBlock(block);
+            return sanitized === block ? content : [sanitized];
+        }
+        if (block && block.type === 'tool_use') {
+            const sanitized = sanitizeToolUseBlock(block);
+            return sanitized === block ? content : [sanitized];
+        }
+        if (block && block.type === 'text') {
+            if (!block.text || block.text.trim().length === 0) return [];
+            const sanitized = sanitizeTextBlock(block);
+            return sanitized === block ? content : [sanitized];
         }
         return content;
     }
+
+    // Fast-path: Check if reordering or sanitization is actually needed
+    let needsModification = false;
+    let expectedType = 'thinking'; // thinking -> text -> tool_use
+
+    for (let i = 0; i < content.length; i++) {
+        const block = content[i];
+        if (!block) {
+            needsModification = true;
+            break;
+        }
+
+        if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+            if (expectedType !== 'thinking') { needsModification = true; break; }
+            if (sanitizeAnthropicThinkingBlock(block) !== block) { needsModification = true; break; }
+        } else if (block.type === 'tool_use') {
+            expectedType = 'tool_use';
+            if (sanitizeToolUseBlock(block) !== block) { needsModification = true; break; }
+        } else if (block.type === 'text') {
+            if (expectedType === 'tool_use') { needsModification = true; break; }
+            expectedType = 'text';
+            if (!block.text || block.text.trim().length === 0) { needsModification = true; break; }
+            if (sanitizeTextBlock(block) !== block) { needsModification = true; break; }
+        } else {
+            if (expectedType === 'tool_use') { needsModification = true; break; }
+            expectedType = 'text';
+        }
+    }
+
+    if (!needsModification) return content;
 
     const thinkingBlocks = [];
     const textBlocks = [];
@@ -421,9 +565,16 @@ export function reorderAssistantContent(content) {
 
     // Log only if actual reordering happened (not just filtering)
     if (reordered.length === content.length) {
-        const originalOrder = content.map(b => b?.type || 'unknown').join(',');
-        const newOrder = reordered.map(b => b?.type || 'unknown').join(',');
-        if (originalOrder !== newOrder) {
+        let orderChanged = false;
+        for (let i = 0; i < content.length; i++) {
+            const originalType = content[i]?.type || 'unknown';
+            const newType = reordered[i]?.type || 'unknown';
+            if (originalType !== newType) {
+                orderChanged = true;
+                break;
+            }
+        }
+        if (orderChanged) {
             logger.debug('[ThinkingUtils] Reordered assistant content');
         }
     }
