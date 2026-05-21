@@ -1,0 +1,3 @@
+## 2026-05-21 - Replace Array.map().filter() and Array.sort() with single-pass loops on hot paths
+**Learning:** Multiple chained array methods (like `.map().filter()`) and sorting operations (`.sort()`) on frequently called paths (like account selection in `HybridStrategy`) cause unnecessary memory allocations and garbage collection overhead. Since the strategies are called on every request, reducing array creation significantly improves latency under load.
+**Action:** When finding the best element or categorizing items in a hot path, replace chained higher-order array functions with a single-pass `for` loop that evaluates all conditions simultaneously and avoids allocating temporary arrays.
