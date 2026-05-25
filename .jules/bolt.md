@@ -1,0 +1,3 @@
+## 2026-05-25 - Optimization of selectAccount and #getCandidates in HybridStrategy
+**Learning:** Found multiple chained array mapping, filtering, and sorting operations (`.map().filter()` and `.map().sort()`) in hot-path logic inside `HybridStrategy`. These intermediate allocations added significant garbage collection pressure overhead. O(n log n) sorting could also be simplified to O(n) single pass max find when only top candidate matters.
+**Action:** Replace functional array chaining like `.map().filter()` and `.map().sort()` with explicitly unrolled `for` loop traversals on critical performance paths. Maintain all cascading fallback sequence exact ordering when unrolling.
