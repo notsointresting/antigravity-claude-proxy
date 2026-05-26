@@ -1,0 +1,3 @@
+## 2026-05-26 - Add fast-path checks in array mapping functions
+**Learning:** Hot paths dealing with parsing large chat histories (`cleanCacheControl`, `stripInvalidThinkingBlocks`, `restoreThinkingSignatures`, `reorderAssistantContent`) use `.map()` extensively, allocating intermediate objects and generating significant GC pressure even when no sanitization or reordering is actually required.
+**Action:** Implemented fast-path identity checks (using single-pass `for` loops) at the start of these functions to bypass allocations and return the original arrays directly if no structural changes are necessary.
