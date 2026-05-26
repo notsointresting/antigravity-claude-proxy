@@ -76,6 +76,24 @@ export function clampGeminiThinkingBudget(modelName, budget) {
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    // Fast path: check if any block has cache_control
+    let hasCacheControl = false;
+    for (let i = 0; i < messages.length; i++) {
+        const message = messages[i];
+        if (message && typeof message === 'object' && Array.isArray(message.content)) {
+            for (let j = 0; j < message.content.length; j++) {
+                const block = message.content[j];
+                if (block && typeof block === 'object' && block.cache_control !== undefined) {
+                    hasCacheControl = true;
+                    break;
+                }
+            }
+        }
+        if (hasCacheControl) break;
+    }
+
+    if (!hasCacheControl) return messages;
+
     let removedCount = 0;
 
     const cleaned = messages.map(message => {
@@ -246,6 +264,21 @@ function sanitizeToolUseBlock(block) {
  * Filter content array, keeping only thinking blocks with valid signatures.
  */
 function filterContentArray(contentArray) {
+    // Fast path: check if there are any unsigned thinking blocks or blocks needing sanitization
+    let needsFiltering = false;
+    for (let i = 0; i < contentArray.length; i++) {
+        const item = contentArray[i];
+        if (item && typeof item === 'object' && isThinkingPart(item)) {
+            if (!hasValidSignature(item) || item.thoughtSignature !== undefined || item.signature !== undefined || item.thinking !== undefined) {
+                // Either unsigned (needs dropping) or might need sanitization
+                needsFiltering = true;
+                break;
+            }
+        }
+    }
+
+    if (!needsFiltering) return contentArray;
+
     const filtered = [];
 
     for (const item of contentArray) {
@@ -279,11 +312,31 @@ function filterContentArray(contentArray) {
  * @returns {Array<{role: string, parts: Array}>} Filtered contents with unsigned thinking blocks removed
  */
 export function filterUnsignedThinkingBlocks(contents) {
+    // Fast path: check if any part needs filtering
+    let needsFiltering = false;
+    for (let i = 0; i < contents.length; i++) {
+        const content = contents[i];
+        if (content && typeof content === 'object' && Array.isArray(content.parts)) {
+            // Check if parts array would be modified by filterContentArray
+            const filteredParts = filterContentArray(content.parts);
+            if (filteredParts !== content.parts) {
+                needsFiltering = true;
+                break;
+            }
+        }
+    }
+
+    if (!needsFiltering) return contents;
+
     return contents.map(content => {
         if (!content || typeof content !== 'object') return content;
 
         if (Array.isArray(content.parts)) {
-            return { ...content, parts: filterContentArray(content.parts) };
+            const filteredParts = filterContentArray(content.parts);
+            // Only create new object if parts actually changed
+            if (filteredParts !== content.parts) {
+                return { ...content, parts: filteredParts };
+            }
         }
 
         return content;
@@ -341,6 +394,21 @@ export function removeTrailingThinkingBlocks(content) {
 export function restoreThinkingSignatures(content) {
     if (!Array.isArray(content)) return content;
 
+    // Fast path: check if any modifications are needed
+    let needsRestore = false;
+    for (let i = 0; i < content.length; i++) {
+        const block = content[i];
+        if (block && block.type === 'thinking') {
+            // Check if it will be dropped (unsigned) or if it has extra properties needing sanitization
+            if (!block.signature || block.signature.length < MIN_SIGNATURE_LENGTH || Object.keys(block).length > 3) {
+                 needsRestore = true;
+                 break;
+            }
+        }
+    }
+
+    if (!needsRestore) return content;
+
     const originalLength = content.length;
     const filtered = [];
 
@@ -375,6 +443,35 @@ export function restoreThinkingSignatures(content) {
  */
 export function reorderAssistantContent(content) {
     if (!Array.isArray(content)) return content;
+
+    // Fast path: check if array is already in order and no sanitization/dropping is needed
+    let needsReorderOrSanitize = false;
+    let expectedType = 'thinking'; // Expected order: thinking -> text/other -> tool_use
+
+    for (let i = 0; i < content.length; i++) {
+        const block = content[i];
+        if (!block) continue;
+
+        if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+            if (expectedType !== 'thinking') { needsReorderOrSanitize = true; break; }
+            if (Object.keys(block).length > 3) { needsReorderOrSanitize = true; break; } // Needs sanitize
+        } else if (block.type === 'tool_use') {
+            if (expectedType === 'thinking') expectedType = 'text'; // Transition allowed
+            if (expectedType === 'text') expectedType = 'tool_use'; // Transition allowed
+            if (Object.keys(block).length > 5) { needsReorderOrSanitize = true; break; } // Needs sanitize (type, id, name, input, thoughtSignature)
+        } else if (block.type === 'text') {
+            if (expectedType === 'thinking') expectedType = 'text'; // Transition allowed
+            if (expectedType === 'tool_use') { needsReorderOrSanitize = true; break; } // Out of order
+            if (!block.text || block.text.trim().length === 0) { needsReorderOrSanitize = true; break; } // Empty block to drop
+            if (Object.keys(block).length > 2) { needsReorderOrSanitize = true; break; } // Needs sanitize
+        } else {
+            // Other blocks
+            if (expectedType === 'thinking') expectedType = 'text';
+            if (expectedType === 'tool_use') { needsReorderOrSanitize = true; break; }
+        }
+    }
+
+    if (!needsReorderOrSanitize) return content;
 
     // Even for single-element arrays, we need to sanitize thinking blocks
     if (content.length === 1) {
@@ -589,6 +686,37 @@ export function needsThinkingRecovery(messages) {
  * @returns {Array<Object>} Messages with invalid thinking blocks removed
  */
 function stripInvalidThinkingBlocks(messages, targetFamily = null) {
+    // Fast path: check if any invalid thinking blocks exist
+    let needsStripping = false;
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (!msg) continue;
+        const content = msg.content || msg.parts;
+        if (!Array.isArray(content)) continue;
+
+        for (let j = 0; j < content.length; j++) {
+            const block = content[j];
+            if (!isThinkingPart(block)) continue;
+
+            if (!hasValidSignature(block)) {
+                needsStripping = true;
+                break;
+            }
+
+            if (targetFamily === 'gemini') {
+                const signature = block.thought === true ? block.thoughtSignature : block.signature;
+                const signatureFamily = getCachedSignatureFamily(signature);
+                if (!signatureFamily || signatureFamily !== targetFamily) {
+                    needsStripping = true;
+                    break;
+                }
+            }
+        }
+        if (needsStripping) break;
+    }
+
+    if (!needsStripping) return messages;
+
     let strippedCount = 0;
 
     const result = messages.map(msg => {
