@@ -75,17 +75,16 @@ export class HybridStrategy extends BaseStrategy {
             return { account: null, index: 0, waitMs };
         }
 
-        // Score and sort candidates
-        const scored = candidates.map(({ account, index }) => ({
-            account,
-            index,
-            score: this.#calculateScore(account, modelId)
-        }));
+        // Score candidates and track the best one in a single pass
+        // This avoids intermediate array allocations and O(n log n) sort overhead
+        let best = null;
+        for (const candidate of candidates) {
+            const score = this.#calculateScore(candidate.account, modelId);
+            if (!best || score > best.score) {
+                best = { ...candidate, score };
+            }
+        }
 
-        scored.sort((a, b) => b.score - a.score);
-
-        // Select the best candidate
-        const best = scored[0];
         best.account.lastUsed = Date.now();
 
         // Consume a token from the bucket (unless in lastResort mode where we bypassed token check)
