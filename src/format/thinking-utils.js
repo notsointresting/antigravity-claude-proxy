@@ -76,6 +76,25 @@ export function clampGeminiThinkingBudget(modelName, budget) {
 export function cleanCacheControl(messages) {
     if (!Array.isArray(messages)) return messages;
 
+    // Fast-path optimization: return original array if no cache_control is present
+    let hasCacheControl = false;
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (msg && typeof msg === 'object' && Array.isArray(msg.content)) {
+            const content = msg.content;
+            for (let j = 0; j < content.length; j++) {
+                const block = content[j];
+                if (block && typeof block === 'object' && block.cache_control !== undefined) {
+                    hasCacheControl = true;
+                    break;
+                }
+            }
+        }
+        if (hasCacheControl) break;
+    }
+
+    if (!hasCacheControl) return messages;
+
     let removedCount = 0;
 
     const cleaned = messages.map(message => {
@@ -86,6 +105,19 @@ export function cleanCacheControl(messages) {
 
         // Handle array content
         if (!Array.isArray(message.content)) return message;
+
+        // Fast path for this specific message
+        let msgHasCacheControl = false;
+        const content = message.content;
+        for (let i = 0; i < content.length; i++) {
+            const block = content[i];
+            if (block && typeof block === 'object' && block.cache_control !== undefined) {
+                msgHasCacheControl = true;
+                break;
+            }
+        }
+
+        if (!msgHasCacheControl) return message;
 
         const cleanedContent = message.content.map(block => {
             if (!block || typeof block !== 'object') return block;
