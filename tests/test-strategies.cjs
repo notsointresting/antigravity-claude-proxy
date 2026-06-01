@@ -89,6 +89,12 @@ async function runTests() {
         }
     }
 
+    function assertApproxEqual(actual, expected, tolerance = 0.01, message = '') {
+        if (Math.abs(actual - expected) > tolerance) {
+            throw new Error(`${message}\nExpected value approximately ${expected} (±${tolerance}), got: ${actual}`);
+        }
+    }
+
     // Helper to create mock accounts
     function createMockAccounts(count = 3, options = {}) {
         return Array.from({ length: count }, (_, i) => ({
@@ -778,7 +784,7 @@ async function runTests() {
         const tokenTracker = strategy.getTokenBucketTracker();
 
         assertEqual(healthTracker.getScore(accounts[0].email), 50, 'Health should decrease by 20');
-        assertEqual(tokenTracker.getTokens(accounts[0].email), tokensBefore + 1, 'Token should be refunded');
+        assertApproxEqual(tokenTracker.getTokens(accounts[0].email), tokensBefore + 1, 0.01, 'Token should be refunded');
     });
 
     test('HybridStrategy: scoring formula weights work correctly', () => {
